@@ -286,7 +286,7 @@ CREATE INDEX idx_assignments_date_range ON employee_assignments(start_date, end_
 CREATE INDEX idx_checkins_user_id ON employee_checkins(user_id);
 CREATE INDEX idx_checkins_location_id ON employee_checkins(location_id);
 CREATE INDEX idx_checkins_check_in_time ON employee_checkins(check_in_time);
-CREATE INDEX idx_checkins_date ON employee_checkins(DATE(check_in_time));
+-- Omitimos el índice de fecha funcional por compatibilidad
 
 -- Location Permissions
 CREATE INDEX idx_location_permissions_user_id ON location_permissions(user_id);
@@ -352,7 +352,8 @@ BEGIN
     JOIN locations l ON c.location_id = l.id
     WHERE c.user_id = p_user_id 
     AND c.check_out_time IS NULL
-    AND DATE(c.check_in_time) = CURRENT_DATE
+    AND c.check_in_time >= CURRENT_DATE
+    AND c.check_in_time < CURRENT_DATE + INTERVAL '1 day'
     ORDER BY c.check_in_time DESC
     LIMIT 1;
 END;
@@ -403,7 +404,8 @@ BEGIN
     LEFT JOIN employee_assignments a ON c.assignment_id = a.id
     WHERE c.location_id = p_location_id
     AND c.check_out_time IS NULL
-    AND DATE(c.check_in_time) = CURRENT_DATE
+    AND c.check_in_time >= CURRENT_DATE
+    AND c.check_in_time < CURRENT_DATE + INTERVAL '1 day'
     ORDER BY c.check_in_time;
 END;
 $$ LANGUAGE plpgsql;
