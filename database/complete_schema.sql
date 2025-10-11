@@ -91,7 +91,7 @@ CREATE TABLE auth_system.applications (
     description TEXT,
     organization_id UUID REFERENCES auth_system.organizations(id) ON DELETE CASCADE,
     api_key VARCHAR(255) NOT NULL UNIQUE,
-    allowed_origins TEXT[], -- Array de orígenes permitidos para CORS
+    allowed_origins TEXT, -- Orígenes permitidos para CORS (separados por comas)
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -240,8 +240,7 @@ CREATE TABLE auth_system.employee_checkins (
     check_in_latitude DECIMAL(10, 8), -- GPS coordinates del check-in
     check_in_longitude DECIMAL(11, 8), -- GPS coordinates del check-in
     shift_type VARCHAR(20) DEFAULT 'regular',
-    hours_worked INTERVAL GENERATED ALWAYS AS (check_out_time - check_in_time) STORED,
-    break_duration INTERVAL DEFAULT '0 minutes',
+    break_duration INTEGER DEFAULT 0, -- Duración del descanso en minutos
     notes TEXT,
     verified_by UUID REFERENCES auth_system.users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -290,7 +289,7 @@ CREATE INDEX idx_assignments_date_range ON auth_system.employee_assignments(star
 CREATE INDEX idx_checkins_user_id ON auth_system.employee_checkins(user_id);
 CREATE INDEX idx_checkins_location_id ON auth_system.employee_checkins(location_id);
 CREATE INDEX idx_checkins_check_in_time ON auth_system.employee_checkins(check_in_time);
-CREATE INDEX idx_checkins_date ON auth_system.employee_checkins(CAST(check_in_time AS DATE));
+CREATE INDEX idx_checkins_date ON auth_system.employee_checkins(DATE(check_in_time));
 
 -- Location Permissions
 CREATE INDEX idx_location_permissions_user_id ON auth_system.location_permissions(user_id);
@@ -344,19 +343,19 @@ CREATE OR REPLACE FUNCTION auth_system.get_employee_current_location(p_user_id U
 RETURNS TABLE (
     location_id UUID,
     location_name VARCHAR,
-    checked_in_at TIMESTAMP WITH TIME ZONE
+    checked_in_at TIMESTAMPTZ
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
         l.id,
-        l.name,
+        l.name::VARCHAR,
         c.check_in_time
     FROM auth_system.employee_checkins c
     JOIN auth_system.locations l ON c.location_id = l.id
     WHERE c.user_id = p_user_id 
     AND c.check_out_time IS NULL
-    AND CAST(c.check_in_time AS DATE) = CURRENT_DATE
+    AND DATE(c.check_in_time) = CURRENT_DATE
     ORDER BY c.check_in_time DESC
     LIMIT 1;
 END;
@@ -391,23 +390,23 @@ RETURNS TABLE (
     user_id UUID,
     user_email VARCHAR,
     user_name VARCHAR,
-    check_in_time TIMESTAMP WITH TIME ZONE,
+    check_in_time TIMESTAMPTZ,
     role_at_location VARCHAR
 ) AS $$
 BEGIN
     RETURN QUERY
     SELECT 
         u.id,
-        u.email,
-        u.first_name || ' ' || u.last_name,
+        u.email::VARCHAR,
+        (u.first_name || ' ' || u.last_name)::VARCHAR,
         c.check_in_time,
-        COALESCE(a.role_at_location, 'employee')
+        COALESCE(a.role_at_location, 'employee')::VARCHAR
     FROM auth_system.employee_checkins c
     JOIN auth_system.users u ON c.user_id = u.id
     LEFT JOIN auth_system.employee_assignments a ON c.assignment_id = a.id
     WHERE c.location_id = p_location_id
     AND c.check_out_time IS NULL
-    AND CAST(c.check_in_time AS DATE) = CURRENT_DATE
+    AND DATE(c.check_in_time) = CURRENT_DATE
     ORDER BY c.check_in_time;
 END;
 $$ LANGUAGE plpgsql;
@@ -424,12 +423,12 @@ BEGIN
     UPDATE auth_system.user_sessions 
     SET is_active = false, logout_at = CURRENT_TIMESTAMP
     WHERE is_active = true 
-      AND login_at < CURRENT_TIMESTAMP - INTERVAL '24 hours'
+      AND login_at < CURRENT_TIMESTAMP - '24 hours'::interval
       AND logout_at IS NULL;
       
     -- Eliminar logs de auditoria antiguos (más de 1 año)
     DELETE FROM auth_system.audit_logs 
-    WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '1 year';
+    WHERE created_at < CURRENT_TIMESTAMP - '1 year'::interval;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -533,6 +532,9 @@ ALTER TABLE auth_system.locations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth_system.employee_assignments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth_system.employee_checkins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth_system.location_permissions ENABLE ROW LEVEL SECURITY;
+
+-- Nota: Las políticas RLS específicas se configurarán desde la aplicación
+-- usando el service_role que tiene acceso completo
 
 -- ==============================================
 -- PERMISOS PARA EL SERVICE ROLE
