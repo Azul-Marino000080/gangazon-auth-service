@@ -1,0 +1,33 @@
+{
+  "name": "gangazon-auth-service",
+  "version": "1.0.0",
+  "description": "Sistema de autenticación centralizada para aplicaciones corporativas de Gangazon",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "joi": "^17.11.0",
+    "@supabase/supabase-js": "^2.49.1",
+    "dotenv": "^16.3.1",
+    "uuid": "^9.0.1",
+    "express-validator": "^7.0.1",
+    "winston": "^3.11.0",
+    "redis": "^4.6.11"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "author": "Gangazon Team",
+  "license": "ISC"
+}
