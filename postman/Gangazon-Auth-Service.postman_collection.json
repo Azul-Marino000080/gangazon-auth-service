@@ -1,0 +1,1118 @@
+{
+  "info": {
+    "name": "Gangazon Auth Service - Sistema de Franquicias",
+    "description": "API completa para el sistema de autenticación y gestión de franquicias de Gangazon",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "gangazon-auth-service-collection"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://gangazon-auth-service.onrender.com",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "organization_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "franchise_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "location_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "assignment_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkin_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🏥 Health & Status",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "API Base Route",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api",
+              "host": ["{{base_url}}"],
+              "path": ["api"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔐 Authentication",
+      "item": [
+        {
+          "name": "Login Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('auth_token', response.token);",
+                  "    pm.collectionVariables.set('user_id', response.user.id);",
+                  "    pm.collectionVariables.set('organization_id', response.user.organization_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@gangazon.com\",\n  \"password\": \"Admin123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register New User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"\",\n  \"password\": \"\",\n  \"firstName\": \"\",\n  \"lastName\": \"\",\n  \"role\": \"user\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "refresh"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "logout"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🏢 Organizations",
+      "item": [
+        {
+          "name": "List Organizations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "organizations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Organization",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"description\": \"\",\n  \"website\": \"\",\n  \"industry\": \"\",\n  \"size\": \"medium\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "organizations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Organization by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/organizations/{{organization_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "organizations", "{{organization_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Organization",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"description\": \"\",\n  \"website\": \"\",\n  \"industry\": \"\",\n  \"size\": \"large\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/organizations/{{organization_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "organizations", "{{organization_id}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🎯 Franchises",
+      "item": [
+        {
+          "name": "List Franchises",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/franchises",
+              "host": ["{{base_url}}"],
+              "path": ["api", "franchises"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Franchise",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('franchise_id', response.franchise.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"franchisee_name\": \"\",\n  \"franchisee_email\": \"\",\n  \"franchisee_phone\": \"\",\n  \"contract_start_date\": \"2025-01-01\",\n  \"contract_end_date\": \"2030-12-31\",\n  \"max_locations\": 5,\n  \"max_employees\": 25,\n  \"billing_tier\": \"standard\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/franchises",
+              "host": ["{{base_url}}"],
+              "path": ["api", "franchises"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Franchise by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/franchises/{{franchise_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "franchises", "{{franchise_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Franchise",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"franchisee_name\": \"\",\n  \"franchisee_email\": \"\",\n  \"franchisee_phone\": \"\",\n  \"max_locations\": 10,\n  \"max_employees\": 50,\n  \"billing_tier\": \"premium\",\n  \"status\": \"active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/franchises/{{franchise_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "franchises", "{{franchise_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Franchise",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/franchises/{{franchise_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "franchises", "{{franchise_id}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📍 Locations",
+      "item": [
+        {
+          "name": "List Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/locations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "locations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Locations by Franchise",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/locations?franchise_id={{franchise_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "locations"],
+              "query": [
+                {
+                  "key": "franchise_id",
+                  "value": "{{franchise_id}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Location",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('location_id', response.location.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"franchise_id\": \"{{franchise_id}}\",\n  \"name\": \"\",\n  \"address\": \"\",\n  \"city\": \"\",\n  \"postal_code\": \"\",\n  \"country\": \"España\",\n  \"phone\": \"\",\n  \"email\": \"\",\n  \"max_employees\": 10,\n  \"latitude\": 40.4168,\n  \"longitude\": -3.7038,\n  \"timezone\": \"Europe/Madrid\",\n  \"operating_hours\": {\n    \"monday\": {\"open\": \"09:00\", \"close\": \"21:00\"},\n    \"tuesday\": {\"open\": \"09:00\", \"close\": \"21:00\"},\n    \"wednesday\": {\"open\": \"09:00\", \"close\": \"21:00\"},\n    \"thursday\": {\"open\": \"09:00\", \"close\": \"21:00\"},\n    \"friday\": {\"open\": \"09:00\", \"close\": \"21:00\"},\n    \"saturday\": {\"open\": \"10:00\", \"close\": \"20:00\"},\n    \"sunday\": {\"open\": \"closed\", \"close\": \"closed\"}\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/locations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "locations"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Location by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "locations", "{{location_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Location",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\",\n  \"address\": \"\",\n  \"city\": \"\",\n  \"postal_code\": \"\",\n  \"phone\": \"\",\n  \"email\": \"\",\n  \"max_employees\": 15,\n  \"latitude\": 40.4168,\n  \"longitude\": -3.7038,\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "locations", "{{location_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Location",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/locations/{{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "locations", "{{location_id}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "👥 Employee Assignments",
+      "item": [
+        {
+          "name": "List Assignments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/assignments",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Assignments by Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/assignments?location_id={{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments"],
+              "query": [
+                {
+                  "key": "location_id",
+                  "value": "{{location_id}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Assignments by User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/assignments?user_id={{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments"],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Assignment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('assignment_id', response.assignment.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"location_id\": \"{{location_id}}\",\n  \"role_at_location\": \"employee\",\n  \"start_date\": \"2025-01-01\",\n  \"end_date\": \"2025-12-31\",\n  \"shift_type\": \"full_time\",\n  \"notes\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/assignments",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Assignment by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/assignments/{{assignment_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments", "{{assignment_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Assignment",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role_at_location\": \"supervisor\",\n  \"end_date\": \"2025-12-31\",\n  \"shift_type\": \"part_time\",\n  \"is_active\": true,\n  \"notes\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/assignments/{{assignment_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments", "{{assignment_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Deactivate Assignment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/assignments/{{assignment_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "assignments", "{{assignment_id}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "⏰ Employee Check-ins",
+      "item": [
+        {
+          "name": "List Check-ins",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Check-ins by Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins?location_id={{location_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins"],
+              "query": [
+                {
+                  "key": "location_id",
+                  "value": "{{location_id}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Check-ins by User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins?user_id={{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins"],
+              "query": [
+                {
+                  "key": "user_id",
+                  "value": "{{user_id}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Today's Check-ins",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins?date=today",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "today"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Check-in",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('checkin_id', response.checkin.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location_id\": \"{{location_id}}\",\n  \"check_in_method\": \"manual\",\n  \"check_in_latitude\": 40.4168,\n  \"check_in_longitude\": -3.7038,\n  \"shift_type\": \"regular\",\n  \"notes\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/checkins",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Check-in with GPS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"location_id\": \"{{location_id}}\",\n  \"check_in_method\": \"gps\",\n  \"check_in_latitude\": 40.4168,\n  \"check_in_longitude\": -3.7038,\n  \"shift_type\": \"regular\",\n  \"notes\": \"Check-in con validación GPS\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/checkins",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Check-in by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins/{{checkin_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins", "{{checkin_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check-out",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"break_duration\": 30,\n  \"notes\": \"Turno completado\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/checkins/{{checkin_id}}/checkout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins", "{{checkin_id}}", "checkout"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current User Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins/current-location",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins", "current-location"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Active Employees at Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/checkins/location/{{location_id}}/active",
+              "host": ["{{base_url}}"],
+              "path": ["api", "checkins", "location", "{{location_id}}", "active"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "👤 Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "{{user_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"\",\n  \"lastName\": \"\",\n  \"role\": \"user\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "{{user_id}}"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "users", "{{user_id}}"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔒 Roles & Permissions",
+      "item": [
+        {
+          "name": "List Available Roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/roles",
+              "host": ["{{base_url}}"],
+              "path": ["api", "roles"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check User Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{auth_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/roles/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "roles", "permissions"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
