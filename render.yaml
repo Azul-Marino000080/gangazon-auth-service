@@ -2,8 +2,8 @@ services:
   - type: web
     name: gangazon-auth-service
     runtime: node
-    region: oregon
-    plan: starter
+    region: frankfurt
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
@@ -14,14 +14,16 @@ services:
         value: 10000
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_SERVICE_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      - key: DB_SCHEMA
+        value: public
       - key: JWT_SECRET
-        generateValue: true
+        value: ab993282457691479582aa268d21f5c1083ee68532b0d87521857540801ef7bb
       - key: JWT_REFRESH_SECRET
-        generateValue: true
+        value: 91b3fd434d35f027799be2e7d1f76787b747e0e5c3bb7e633e82586532d49f70
       - key: JWT_EXPIRES_IN
         value: 15m
       - key: JWT_REFRESH_EXPIRES_IN
@@ -32,7 +34,15 @@ services:
         value: 900000
       - key: RATE_LIMIT_MAX_REQUESTS
         value: 100
-      - key: DB_SCHEMA
-        value: auth_system
-      - key: ALLOWED_ORIGINS
-        value: https://yourapp.com,https://admin.yourapp.com
+      - key: CORS_ORIGINS
+        value: https://localhost:3000,https://gangazon-scanner.vercel.app
+      - key: SESSION_TIMEOUT_HOURS
+        value: 24
+      - key: REFRESH_TOKEN_DAYS
+        value: 30
+      - key: FRANCHISE_MAX_LOCATIONS
+        value: 10
+      - key: FRANCHISE_MAX_EMPLOYEES
+        value: 50
+      - key: GPS_TOLERANCE_METERS
+        value: 100

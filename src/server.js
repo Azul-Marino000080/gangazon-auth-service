@@ -24,7 +24,7 @@ app.use(helmet());
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+  origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
@@ -48,13 +48,28 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    service: 'Gangazon Auth Service',
-    version: '1.0.0'
-  });
+app.get('/health', async (req, res) => {
+  try {
+    // Verificar conexión a la base de datos
+    const dbService = require('./config/database');
+    const isConnected = await dbService.testConnection();
+    
+    res.status(200).json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      service: 'Gangazon Auth Service',
+      version: '1.0.0',
+      database: isConnected ? 'Connected' : 'Disconnected',
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      service: 'Gangazon Auth Service',
+      error: 'Database connection failed'
+    });
+  }
 });
 
 // API Routes
@@ -80,9 +95,16 @@ app.use('*', (req, res) => {
 app.use(errorHandler);
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   logger.info(`🚀 Gangazon Auth Service ejecutándose en puerto ${PORT}`);
   logger.info(`📊 Health check disponible en http://localhost:${PORT}/health`);
+  logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`🔒 CORS Origins: ${process.env.CORS_ORIGINS || 'localhost:3000'}`);
+});
+
+server.on('error', (error) => {
+  logger.error('❌ Error starting server:', error);
+  process.exit(1);
 });
 
 // Graceful shutdown

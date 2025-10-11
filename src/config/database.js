@@ -3,13 +3,13 @@ const logger = require('../utils/logger');
 
 class SupabaseService {
   constructor() {
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
-      throw new Error('Faltan variables de entorno de Supabase');
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Faltan variables de entorno de Supabase: SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY');
     }
 
     this.supabase = createClient(
       process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
       {
         auth: {
           autoRefreshToken: false,
