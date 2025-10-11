@@ -438,7 +438,7 @@ $$ LANGUAGE plpgsql;
 -- Crear organización por defecto para super admin
 INSERT INTO organizations (id, name, description, size) 
 VALUES (
-    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    gen_random_uuid(),
     'Gangazon System',
     'Organización del sistema para administradores',
     'enterprise'
@@ -457,63 +457,16 @@ INSERT INTO users (
     is_active,
     email_verified
 ) VALUES (
-    '11111111-2222-3333-4444-555555555555',
+    gen_random_uuid(),
     'admin@gangazon.com',
     '$2a$12$LGqG8Gn2COwZo0A9VEBOaeZBYjGdKb.PklpgcQeTPsDrRBKImOkq.',  -- Admin123!
     'Super',
     'Admin',
     'super_admin',
-    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+    (SELECT id FROM organizations WHERE name = 'Gangazon System'),
     true,
     true
 ) ON CONFLICT (email) DO NOTHING;
-
--- Insertar franquicia de ejemplo (solo si no existe)
-INSERT INTO franchises (
-    id,
-    organization_id,
-    name,
-    franchisee_name,
-    franchisee_email,
-    contract_start_date,
-    max_locations,
-    max_employees
-) VALUES (
-    'fran-aaaa-bbbb-cccc-dddddddddddd',
-    'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    'Franquicia Madrid Centro',
-    'Juan Pérez García',
-    'juan.perez@franquicia-madrid.com',
-    CURRENT_DATE,
-    5,
-    25
-) ON CONFLICT DO NOTHING;
-
--- Insertar locales de ejemplo
-INSERT INTO locations (
-    id,
-    franchise_id,
-    name,
-    address,
-    city,
-    postal_code
-) VALUES 
-(
-    'loc1-aaaa-bbbb-cccc-dddddddddddd',
-    'fran-aaaa-bbbb-cccc-dddddddddddd',
-    'Local Centro',
-    'Calle Mayor, 15',
-    'Madrid',
-    '28001'
-),
-(
-    'loc2-aaaa-bbbb-cccc-dddddddddddd',
-    'fran-aaaa-bbbb-cccc-dddddddddddd',
-    'Local Norte',
-    'Avenida de América, 88',
-    'Madrid',
-    '28028'
-) ON CONFLICT DO NOTHING;
 
 -- ==============================================
 -- VERIFICACIÓN
