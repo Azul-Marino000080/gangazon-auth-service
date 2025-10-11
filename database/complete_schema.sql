@@ -111,7 +111,7 @@ CREATE TABLE auth_system.user_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES auth_system.users(id) ON DELETE CASCADE,
     application_id UUID REFERENCES auth_system.applications(id) ON DELETE SET NULL,
-    ip_address INET,
+    ip_address VARCHAR(45), -- IPv4 o IPv6
     user_agent TEXT,
     login_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     logout_at TIMESTAMP WITH TIME ZONE,
@@ -138,7 +138,7 @@ CREATE TABLE auth_system.audit_logs (
     resource_id UUID,
     old_values JSONB,
     new_values JSONB,
-    ip_address INET,
+    ip_address VARCHAR(45), -- IPv4 o IPv6
     user_agent TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -194,7 +194,8 @@ CREATE TABLE auth_system.locations (
     max_employees INTEGER DEFAULT 5,
     operating_hours JSONB DEFAULT '{}', -- {"monday": {"open": "09:00", "close": "21:00"}, ...}
     timezone VARCHAR(50) DEFAULT 'Europe/Madrid',
-    coordinates POINT, -- Para validación GPS
+    latitude DECIMAL(10, 8), -- Coordenadas GPS
+    longitude DECIMAL(11, 8), -- Coordenadas GPS
     is_active BOOLEAN DEFAULT true,
     settings JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -236,7 +237,8 @@ CREATE TABLE auth_system.employee_checkins (
     check_in_time TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     check_out_time TIMESTAMP WITH TIME ZONE,
     check_in_method VARCHAR(20) DEFAULT 'manual' CHECK (check_in_method IN ('manual', 'gps', 'qr_code', 'nfc')),
-    check_in_location POINT, -- GPS coordinates del check-in
+    check_in_latitude DECIMAL(10, 8), -- GPS coordinates del check-in
+    check_in_longitude DECIMAL(11, 8), -- GPS coordinates del check-in
     shift_type VARCHAR(20) DEFAULT 'regular',
     hours_worked INTERVAL GENERATED ALWAYS AS (check_out_time - check_in_time) STORED,
     break_duration INTERVAL DEFAULT '0 minutes',
