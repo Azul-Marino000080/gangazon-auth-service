@@ -16,7 +16,7 @@ class SupabaseService {
           persistSession: false
         },
         db: {
-          schema: process.env.DB_SCHEMA || 'auth_system'
+          schema: process.env.DB_SCHEMA || 'public'
         }
       }
     );
