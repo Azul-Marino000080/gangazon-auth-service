@@ -1,39 +1,43 @@
-# CONFIGURACIÓN PARA RENDER
+# ==============================================
+# VARIABLES DE ENTORNO PARA RENDER
 # Copia estas variables al panel de Render
+# ==============================================
 
-# URL de la base de datos de Supabase
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+# === SUPABASE CONFIGURATION ===
+# ⚠️ REEMPLAZA CON TUS VALORES REALES DE SUPABASE
+SUPABASE_URL=https://tu-proyecto-id.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.tu-anon-key-aqui
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.tu-service-role-key-aqui
 
-# Schema de base de datos (usar public para máxima compatibilidad)
+# === DATABASE SCHEMA ===
 DB_SCHEMA=public
 
-# JWT Secrets generados (usar los de arriba)
+# === JWT SECRETS (YA GENERADOS) ===
 JWT_SECRET=ab993282457691479582aa268d21f5c1083ee68532b0d87521857540801ef7bb
 JWT_REFRESH_SECRET=91b3fd434d35f027799be2e7d1f76787b747e0e5c3bb7e633e82586532d49f70
+JWT_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN=7d
 
-# Configuración del servidor
+# === SERVER CONFIGURATION ===
 NODE_ENV=production
 PORT=10000
-
-# CORS Origins (agrega tus dominios)
-CORS_ORIGINS=https://tu-app-frontend.com,https://gangazon-scanner.vercel.app
-
-# Configuración de logs
 LOG_LEVEL=info
 
-# Configuración de rate limiting
+# === CORS ORIGINS ===
+# ⚠️ REEMPLAZA CON TUS DOMINIOS REALES
+CORS_ORIGINS=https://tu-frontend.com,https://gangazon-scanner.vercel.app,https://localhost:3000
+
+# === RATE LIMITING ===
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX_REQUESTS=100
 
-# Configuración de sesiones
+# === SESSION CONFIGURATION ===
 SESSION_TIMEOUT_HOURS=24
 REFRESH_TOKEN_DAYS=30
 
-# Configuración específica de franquicias
+# === FRANCHISE SYSTEM CONFIGURATION ===
 FRANCHISE_MAX_LOCATIONS=10
 FRANCHISE_MAX_EMPLOYEES=50
 
-# Configuración de GPS para check-ins
+# === GPS VALIDATION ===
 GPS_TOLERANCE_METERS=100
