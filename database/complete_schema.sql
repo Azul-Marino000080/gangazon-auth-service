@@ -288,7 +288,7 @@ CREATE INDEX idx_assignments_date_range ON auth_system.employee_assignments(star
 CREATE INDEX idx_checkins_user_id ON auth_system.employee_checkins(user_id);
 CREATE INDEX idx_checkins_location_id ON auth_system.employee_checkins(location_id);
 CREATE INDEX idx_checkins_check_in_time ON auth_system.employee_checkins(check_in_time);
-CREATE INDEX idx_checkins_date ON auth_system.employee_checkins(check_in_time::date);
+CREATE INDEX idx_checkins_date ON auth_system.employee_checkins(CAST(check_in_time AS DATE));
 
 -- Location Permissions
 CREATE INDEX idx_location_permissions_user_id ON auth_system.location_permissions(user_id);
@@ -354,7 +354,7 @@ BEGIN
     JOIN auth_system.locations l ON c.location_id = l.id
     WHERE c.user_id = p_user_id 
     AND c.check_out_time IS NULL
-    AND c.check_in_time::date = CURRENT_DATE
+    AND CAST(c.check_in_time AS DATE) = CURRENT_DATE
     ORDER BY c.check_in_time DESC
     LIMIT 1;
 END;
@@ -397,7 +397,7 @@ BEGIN
     SELECT 
         u.id,
         u.email,
-        CONCAT(u.first_name, ' ', u.last_name),
+        u.first_name || ' ' || u.last_name,
         c.check_in_time,
         COALESCE(a.role_at_location, 'employee')
     FROM auth_system.employee_checkins c
@@ -405,7 +405,7 @@ BEGIN
     LEFT JOIN auth_system.employee_assignments a ON c.assignment_id = a.id
     WHERE c.location_id = p_location_id
     AND c.check_out_time IS NULL
-    AND c.check_in_time::date = CURRENT_DATE
+    AND CAST(c.check_in_time AS DATE) = CURRENT_DATE
     ORDER BY c.check_in_time;
 END;
 $$ LANGUAGE plpgsql;
