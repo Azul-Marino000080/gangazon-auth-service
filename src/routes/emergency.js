@@ -161,7 +161,10 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
           organizationId: finalOrgId || GANGAZON_ORG_ID
         });
 
-        const refreshToken = authUtils.generateRefreshToken();
+        const refreshToken = authUtils.generateRefreshToken({
+          id: existingUser.id,
+          email: email
+        });
 
         // Guardar refresh token en la base de datos
         await db.getClient()
@@ -227,7 +230,10 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
       organizationId: user.organization_id
     });
 
-    const refreshToken = authUtils.generateRefreshToken();
+    const refreshToken = authUtils.generateRefreshToken({
+      id: user.id,
+      email: user.email
+    });
 
     // Guardar refresh token en la base de datos
     await db.getClient()
