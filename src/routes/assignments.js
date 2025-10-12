@@ -130,7 +130,7 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee', 'manager
         id: uuidv4(),
         user_id: user_id,
         location_id: location_id,
-        role_at_location: role_at_location || 'location_employee',
+        role_at_location: role_at_location || 'employee',
         start_date: start_date,
         end_date: end_date,
         shift_type: shift_type || 'full_time',
@@ -208,9 +208,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
         notes,
         created_at,
         updated_at,
-        users!employee_assignments_user_id_fkey(first_name, last_name, email),
-        locations(name, franchise_id, franchises(name)),
-        users!employee_assignments_assigned_by_fkey(first_name, last_name, email)
+        locations(name, franchise_id, franchises(name))
       `, { count: 'exact' });
 
     // Filtros según rol del usuario

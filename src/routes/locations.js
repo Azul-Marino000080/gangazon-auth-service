@@ -193,8 +193,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
         is_active,
         created_at,
         updated_at,
-        franchises(name, organization_id),
-        users(first_name, last_name, email)
+        franchises(name, organization_id)
       `, { count: 'exact' });
 
     // Filtros según rol del usuario

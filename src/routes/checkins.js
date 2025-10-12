@@ -298,7 +298,6 @@ router.get('/', authenticateToken, async (req, res, next) => {
         break_duration,
         notes,
         created_at,
-        users(first_name, last_name, email),
         locations(name, address, franchise_id, franchises(name))
       `, { count: 'exact' });
 
