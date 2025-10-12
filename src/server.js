@@ -15,6 +15,7 @@ const franchiseRoutes = require('./routes/franchises');
 const locationRoutes = require('./routes/locations');
 const assignmentRoutes = require('./routes/assignments');
 const checkinRoutes = require('./routes/checkins');
+const emergencyRoutes = require('./routes/emergency');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -81,6 +82,7 @@ app.use('/api/franchises', franchiseRoutes);
 app.use('/api/locations', locationRoutes);
 app.use('/api/assignments', assignmentRoutes);
 app.use('/api/checkins', checkinRoutes);
+app.use('/api/emergency', emergencyRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

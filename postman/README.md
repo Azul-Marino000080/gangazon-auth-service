@@ -1,236 +1,279 @@
-# 📮 Configuración de Postman para Gangazon Auth Service
+# 📮 Colección de Postman - Gangazon Auth Service
 
 ## 🚀 Configuración Rápida
 
-### 1. Importar Archivos en Postman
+### 1. Importar en Postman
 
-1. **Abrir Postman**
+1. **Abrir Postman Desktop** o **Postman Web**
 2. **Importar Colección:**
-   - Click en **"Import"**
-   - Selecciona el archivo: `postman/Gangazon-Auth-Service.postman_collection.json`
+   - Click en **"Import"** (botón superior izquierdo)
+   - Arrastra o selecciona: `Gangazon-Auth-Service.postman_collection.json`
    - Click **"Import"**
 
 3. **Importar Entorno:**
    - Click en **"Import"**
-   - Selecciona el archivo: `postman/Gangazon-Auth-Production.postman_environment.json`
+   - Arrastra o selecciona: `Gangazon-Auth-Production.postman_environment.json`
    - Click **"Import"**
 
 4. **Activar Entorno:**
-   - En el dropdown superior derecho, selecciona: **"Gangazon Auth Service - Production"**
+   - En el dropdown superior derecha, selecciona: **"Gangazon Auth Service - Production"**
+   - Verifica que aparezca con un check verde ✓
 
-### 2. Configuración Inicial
+## 📋 Estructura de la Colección
 
-#### ✅ Variables Pre-configuradas:
-- `base_url`: `https://gangazon-auth-service.onrender.com`
-- `admin_email`: `admin@gangazon.com`
-- `admin_password`: `Admin123!`
+### 🏥 **Health & Status**
+Verificar estado del servicio
+- `GET /health` - Health check básico
+- `GET /` - Información de la API
 
-#### 🔐 Variables que se rellenan automáticamente:
-- `auth_token` - Se rellena al hacer login
-- `user_id` - Se rellena al hacer login
-- `organization_id` - Se rellena al hacer login
-- `franchise_id` - Se rellena al crear franquicia
-- `location_id` - Se rellena al crear local
-- `assignment_id` - Se rellena al crear asignación
-- `checkin_id` - Se rellena al hacer check-in
+### 🔐 **Authentication**
+Sistema de autenticación JWT
+- `POST /api/auth/login` - Login (guarda token automáticamente)
+- `POST /api/auth/register` - Registrar nuevo usuario
+- `GET /api/auth/profile` - Obtener perfil del usuario
+- `POST /api/auth/refresh` - Renovar token
+- `POST /api/auth/logout` - Cerrar sesión
 
-## 🧪 Flujo de Pruebas Recomendado
+### 🏢 **Organizations**
+Gestión de organizaciones
+- `GET /api/organizations` - Listar organizaciones
+- `GET /api/organizations/:id` - Obtener organización por ID
 
-### 1. **Verificación Inicial**
-```
-🏥 Health & Status
-  ├── Health Check
-  └── API Base Route
-```
+### 🎯 **Franchises**
+Gestión de franquicias
+- `POST /api/franchises` - Crear franquicia
+- `GET /api/franchises` - Listar franquicias
+- `GET /api/franchises/:id` - Obtener franquicia
+- `PUT /api/franchises/:id` - Actualizar franquicia
+- `DELETE /api/franchises/:id` - Eliminar franquicia
 
-### 2. **Autenticación**
-```
-🔐 Authentication
-  ├── Login Admin (Ejecutar PRIMERO)
-  ├── Get User Profile
-  ├── Register New User
-  ├── Refresh Token
-  └── Logout
-```
+### 📍 **Locations**
+Gestión de locales/ubicaciones
+- `POST /api/locations` - Crear local
+- `GET /api/locations?franchise_id=xxx` - Listar locales de franquicia
+- `GET /api/locations/:id` - Obtener local
+- `PUT /api/locations/:id` - Actualizar local
+- `DELETE /api/locations/:id` - Eliminar local
 
-### 3. **Gestión de Organizaciones**
-```
-🏢 Organizations
-  ├── List Organizations
-  ├── Create Organization
-  ├── Get Organization by ID
-  └── Update Organization
-```
+### 👥 **Employee Assignments**
+Asignaciones de empleados a locales
+- `POST /api/assignments` - Crear asignación
+- `GET /api/assignments?location_id=xxx` - Listar asignaciones
+- `GET /api/assignments/:id` - Obtener asignación
+- `PUT /api/assignments/:id` - Actualizar asignación
+- `DELETE /api/assignments/:id` - Finalizar asignación
 
-### 4. **Sistema de Franquicias**
-```
-🎯 Franchises
-  ├── List Franchises
-  ├── Create Franchise (Guarda franchise_id)
-  ├── Get Franchise by ID
-  ├── Update Franchise
-  └── Delete Franchise
-```
+### ⏰ **Employee Check-ins**
+Sistema de fichaje con GPS
+- `POST /api/checkins` - Hacer check-in
+- `POST /api/checkins/:id/checkout` - Hacer check-out
+- `GET /api/checkins/location/:id/active` - Empleados activos en local
+- `GET /api/checkins?user_id=xxx` - Check-ins de usuario
+- `GET /api/checkins?location_id=xxx` - Check-ins de local
 
-### 5. **Gestión de Locales**
-```
-📍 Locations
-  ├── List Locations
-  ├── List Locations by Franchise
-  ├── Create Location (Guarda location_id)
-  ├── Get Location by ID
-  ├── Update Location
-  └── Delete Location
-```
+## 🔄 Variables Automáticas
 
-### 6. **Asignaciones de Empleados**
-```
-👥 Employee Assignments
-  ├── List Assignments
-  ├── List Assignments by Location
-  ├── List Assignments by User
-  ├── Create Assignment (Guarda assignment_id)
-  ├── Get Assignment by ID
-  ├── Update Assignment
-  └── Deactivate Assignment
-```
+Las siguientes variables se **rellenan automáticamente** al ejecutar las peticiones:
 
-### 7. **Control de Presencia**
+| Variable | Se guarda en | Uso |
+|----------|-------------|-----|
+| `auth_token` | Login Admin | Token JWT para autenticación |
+| `user_id` | Login Admin | ID del usuario autenticado |
+| `organization_id` | Login Admin | ID de la organización |
+| `user_role` | Login Admin | Rol del usuario |
+| `franchise_id` | Create Franchise | ID de franquicia creada |
+| `location_id` | Create Location | ID de local creado |
+| `assignment_id` | Create Assignment | ID de asignación creada |
+| `checkin_id` | Create Check-in | ID de check-in creado |
+| `new_user_id` | Register New User | ID de usuario recién creado |
+
+## 🎯 Flujo de Prueba Recomendado
+
+### **Paso 1: Autenticación**
 ```
-⏰ Employee Check-ins
-  ├── List Check-ins
-  ├── List Check-ins by Location
-  ├── List Check-ins by User
-  ├── List Today's Check-ins
-  ├── Create Check-in (Guarda checkin_id)
-  ├── Create Check-in with GPS
-  ├── Get Check-in by ID
-  ├── Check-out
-  ├── Get Current User Location
-  └── Get Active Employees at Location
+1. Ejecutar: "Login Admin"
+   → Esto guarda automáticamente el token y datos del usuario
 ```
 
-### 8. **Gestión de Usuarios**
+### **Paso 2: Crear Estructura de Franquicia**
 ```
-👤 Users
-  ├── List Users
-  ├── Get User by ID
-  ├── Update User
-  └── Delete User
+2. Ejecutar: "Create Franchise"
+   → Guarda franchise_id automáticamente
+
+3. Ejecutar: "Create Location"
+   → Usa franchise_id guardado
+   → Guarda location_id automáticamente
 ```
 
-### 9. **Roles y Permisos**
+### **Paso 3: Gestionar Empleados**
 ```
-🔒 Roles & Permissions
-  ├── List Available Roles
-  └── Check User Permissions
+4. Ejecutar: "Register New User"
+   → Guarda new_user_id automáticamente
+
+5. Ejecutar: "Create Assignment"
+   → Usa new_user_id y location_id guardados
+   → Guarda assignment_id automáticamente
 ```
 
-## 🔧 Campos Vacíos para Completar
+### **Paso 4: Sistema de Fichaje**
+```
+6. Ejecutar: "Create Check-in"
+   → Usa location_id guardado
+   → Guarda checkin_id automáticamente
 
-### 📝 **Register New User:**
+7. Ejecutar: "Get Active Employees at Location"
+   → Ver empleados activos en el local
+
+8. Ejecutar: "Create Check-out"
+   → Usa checkin_id guardado
+```
+
+## 🔧 Personalización
+
+### **Cambiar datos de prueba:**
+Puedes editar los body de las peticiones para usar tus propios datos:
+
+**Franquicia:**
 ```json
 {
-  "email": "",                    // ← Tu email
-  "password": "",                 // ← Contraseña segura
-  "firstName": "",                // ← Nombre
-  "lastName": "",                 // ← Apellido
-  "role": "user"                  // ← Rol: user, admin, franchisor_admin, etc.
+  "name": "Tu Franquicia",
+  "code": "TU-CODIGO",
+  "address": "Tu dirección",
+  "contact_phone": "+34XXXXXXXXX",
+  "contact_email": "email@ejemplo.com"
 }
 ```
 
-### 🏢 **Create Organization:**
+**Local (con coordenadas GPS reales):**
 ```json
 {
-  "name": "",                     // ← Nombre de la organización
-  "description": "",              // ← Descripción
-  "website": "",                  // ← Sitio web
-  "industry": "",                 // ← Industria
-  "size": "medium"                // ← startup, small, medium, large, enterprise
+  "franchise_id": "{{franchise_id}}",
+  "name": "Tu Local",
+  "address": "Tu dirección",
+  "latitude": 40.416775,
+  "longitude": -3.703790,
+  "max_distance_meters": 100
 }
 ```
 
-### 🎯 **Create Franchise:**
-```json
-{
-  "name": "",                     // ← Nombre de la franquicia
-  "franchisee_name": "",          // ← Nombre del franquiciado
-  "franchisee_email": "",         // ← Email del franquiciado
-  "franchisee_phone": "",         // ← Teléfono
-  "contract_start_date": "2025-01-01",
-  "contract_end_date": "2030-12-31",
-  "max_locations": 5,
-  "max_employees": 25,
-  "billing_tier": "standard"      // ← basic, standard, premium
+### **Obtener coordenadas GPS:**
+1. Abre [Google Maps](https://maps.google.com)
+2. Click derecho en tu ubicación
+3. Copia las coordenadas (ejemplo: `40.416775, -3.703790`)
+4. Primera cifra = `latitude`, segunda = `longitude`
+
+## ⚙️ Crear Tests Personalizados
+
+Cada petición puede incluir tests en la pestaña **"Tests"**. Ejemplos:
+
+### **Test básico de status:**
+```javascript
+pm.test("Status code is 200", function () {
+    pm.response.to.have.status(200);
+});
+```
+
+### **Test de estructura de respuesta:**
+```javascript
+pm.test("Response has required fields", function () {
+    const jsonData = pm.response.json();
+    pm.expect(jsonData).to.have.property('id');
+    pm.expect(jsonData).to.have.property('name');
+});
+```
+
+### **Guardar variable desde respuesta:**
+```javascript
+if (pm.response.code === 200) {
+    const jsonData = pm.response.json();
+    pm.environment.set('mi_variable', jsonData.algun_campo);
+    console.log('✅ Variable guardada:', jsonData.algun_campo);
 }
 ```
 
-### 📍 **Create Location:**
-```json
-{
-  "franchise_id": "{{franchise_id}}", // ← Se rellena automáticamente
-  "name": "",                     // ← Nombre del local
-  "address": "",                  // ← Dirección completa
-  "city": "",                     // ← Ciudad
-  "postal_code": "",              // ← Código postal
-  "country": "España",
-  "phone": "",                    // ← Teléfono del local
-  "email": "",                    // ← Email del local
-  "max_employees": 10,
-  "latitude": 40.4168,            // ← Coordenadas GPS reales
-  "longitude": -3.7038,           // ← Coordenadas GPS reales
-  "timezone": "Europe/Madrid"
-}
+### **Test de tiempo de respuesta:**
+```javascript
+pm.test("Response time is less than 500ms", function () {
+    pm.expect(pm.response.responseTime).to.be.below(500);
+});
 ```
-
-### 👥 **Create Assignment:**
-```json
-{
-  "user_id": "{{user_id}}",       // ← Se rellena automáticamente
-  "location_id": "{{location_id}}", // ← Se rellena automáticamente
-  "role_at_location": "employee", // ← employee, supervisor, manager
-  "start_date": "2025-01-01",     // ← Fecha de inicio
-  "end_date": "2025-12-31",       // ← Fecha de fin (opcional)
-  "shift_type": "full_time",      // ← full_time, part_time, temporary, cover
-  "notes": ""                     // ← Notas adicionales
-}
-```
-
-### ⏰ **Create Check-in:**
-```json
-{
-  "location_id": "{{location_id}}", // ← Se rellena automáticamente
-  "check_in_method": "manual",    // ← manual, gps, qr_code, nfc
-  "check_in_latitude": 40.4168,   // ← Coordenadas GPS del check-in
-  "check_in_longitude": -3.7038,  // ← Coordenadas GPS del check-in
-  "shift_type": "regular",        // ← Tipo de turno
-  "notes": ""                     // ← Notas del check-in
-}
-```
-
-## 🎯 Scripts Automáticos
-
-### ✅ **Scripts Pre-configurados:**
-- **Login Admin:** Guarda automáticamente el token y IDs en variables
-- **Create Franchise:** Guarda el `franchise_id` para usar en otros endpoints
-- **Create Location:** Guarda el `location_id` para usar en otros endpoints
-- **Create Assignment:** Guarda el `assignment_id` para usar en otros endpoints
-- **Create Check-in:** Guarda el `checkin_id` para usar en otros endpoints
-
-### 🔄 **Flujo Automático:**
-1. Ejecuta **"Login Admin"** primero
-2. Los siguientes endpoints usarán automáticamente el token
-3. Cada creación guardará el ID correspondiente
-4. Los endpoints de consulta usarán los IDs guardados
 
 ## 🚨 Notas Importantes
 
-- **Ejecutar "Login Admin" PRIMERO** para obtener el token
-- **Las variables se actualizan automáticamente** con cada creación
-- **Los campos vacíos deben completarse** según tus necesidades
-- **El token expira cada 15 minutos** - volver a hacer login si es necesario
-- **GPS coordinates:** Usa coordenadas reales de tus ubicaciones
+### **Credenciales de Testing:**
 
-## ✅ ¡Listo para Probar!
+#### 👨‍💼 **Admin de Testing (Pre-configurado):**
+- **Email:** `testing@gangazon.com`
+- **Password:** `Testing123!`
+- **Role:** `super_admin`
+- **Organization ID:** `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
 
-Con esta configuración puedes probar todo el sistema de franquicias de forma completa y automatizada.
+#### 👤 **Empleado de Testing:**
+- **Email:** `employee.test@gangazon.com`
+- **Password:** `Employee123!`
+- **Role:** `user`
+- **User ID:** `e5f6a7b8-c9d0-1234-ef01-23456789abcd`
+
+#### 🏢 **Datos Pre-creados para Testing:**
+- **Franchise ID:** `c3d4e5f6-a7b8-9012-cdef-123456789012`
+- **Location ID:** `d4e5f6a7-b8c9-0123-def0-123456789abc`
+- **Assignment ID:** `f6a7b8c9-d0e1-2345-f012-3456789abcde`
+- **GPS Coords:** `40.416775, -3.703790` (Puerta del Sol, Madrid)
+
+### **Token de autenticación:**
+- El token expira cada **15 minutos**
+- Si obtienes error 401, ejecuta **"Login Admin"** de nuevo
+- El token se guarda automáticamente en la variable `auth_token`
+
+### **Coordenadas GPS:**
+- Usa coordenadas **reales** de tus ubicaciones
+- El sistema valida que estés dentro del radio configurado
+- Por defecto: 100 metros de distancia máxima
+
+### **Variables de entorno:**
+- Todas las variables se guardan en el **entorno activo**
+- Verifica que el entorno **"Production"** esté seleccionado
+- Puedes ver las variables en el icono del ojo 👁️ (superior derecha)
+
+## 📊 Monitoreo y Automatización
+
+### **Runner de Colección:**
+1. Click en la colección
+2. Click en **"Run"**
+3. Selecciona las carpetas/peticiones a ejecutar
+4. Click **"Run Gangazon Auth Service"**
+
+### **Crear Monitor:**
+1. Click en la colección → **"..."** → **"Monitor collection"**
+2. Configura frecuencia (ej: cada 6 horas)
+3. Selecciona entorno de producción
+4. Activa notificaciones por email
+
+## 🎨 Crear Flows Visuales (Postman Flows)
+
+Para crear workflows visuales:
+
+1. Ve a **"Flows"** en la barra lateral de Postman
+2. Click **"Create Flow"**
+3. Arrastra bloques desde el panel izquierdo:
+   - **Send Request** → Selecciona peticiones de la colección
+   - **If** → Añade lógica condicional
+   - **Log** → Muestra mensajes de debug
+4. Conecta bloques arrastrando desde puntos de salida
+5. Click **"Run"** para ejecutar el flow
+
+### **Ejemplo de Flow simple:**
+```
+Start → Login Admin → Create Franchise → Create Location → Log Success
+```
+
+## ✅ ¡Todo Listo!
+
+Ahora tienes:
+- ✅ Colección completa con todas las peticiones
+- ✅ Entorno de producción configurado
+- ✅ Variables automáticas que se rellenan solas
+- ✅ Scripts de test en peticiones clave
+- ✅ Documentación completa de uso
+
+**¡Empieza ejecutando "Login Admin" y explora la API!** 🚀

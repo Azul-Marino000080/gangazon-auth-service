@@ -78,7 +78,8 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
         assignment_id: assignment?.id,
         check_in_time: new Date().toISOString(),
         check_in_method: checkInMethod || 'manual',
-        check_in_location: coordinates ? `(${coordinates.lat},${coordinates.lng})` : null,
+        check_in_latitude: coordinates?.lat || null,
+        check_in_longitude: coordinates?.lng || null,
         notes,
         created_at: new Date().toISOString()
       })
@@ -88,7 +89,8 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
         location_id,
         check_in_time,
         check_in_method,
-        check_in_location,
+        check_in_latitude,
+        check_in_longitude,
         notes,
         locations(name, address)
       `)
@@ -113,7 +115,10 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
         location: checkin.locations,
         checkInTime: checkin.check_in_time,
         checkInMethod: checkin.check_in_method,
-        coordinates: checkin.check_in_location,
+        coordinates: checkin.check_in_latitude && checkin.check_in_longitude ? {
+          lat: checkin.check_in_latitude,
+          lng: checkin.check_in_longitude
+        } : null,
         notes: checkin.notes
       }
     });
@@ -163,12 +168,17 @@ router.post('/checkout', authenticateToken, async (req, res, next) => {
 
     const checkOutTime = new Date().toISOString();
 
+    // Calcular horas trabajadas
+    const checkInTime = new Date(activeCheckin.check_in_time);
+    const checkOutTimeObj = new Date(checkOutTime);
+    const hoursWorked = Math.round((checkOutTimeObj - checkInTime) / (1000 * 60 * 60) * 100) / 100;
+
     // Actualizar el check-in con el check-out
     const { data: checkin, error: updateError } = await db.getClient()
       .from('employee_checkins')
       .update({
         check_out_time: checkOutTime,
-        break_duration: breakDuration || '0 minutes',
+        break_duration: breakDuration || 0,
         notes: notes || activeCheckin.notes
       })
       .eq('id', activeCheckin.id)
@@ -178,7 +188,6 @@ router.post('/checkout', authenticateToken, async (req, res, next) => {
         location_id,
         check_in_time,
         check_out_time,
-        hours_worked,
         break_duration,
         notes,
         locations(name, address)
@@ -204,7 +213,7 @@ router.post('/checkout', authenticateToken, async (req, res, next) => {
         location: checkin.locations,
         checkInTime: checkin.check_in_time,
         checkOutTime: checkin.check_out_time,
-        hoursWorked: checkin.hours_worked,
+        hoursWorked: hoursWorked,
         breakDuration: checkin.break_duration,
         notes: checkin.notes
       }
@@ -286,7 +295,6 @@ router.get('/', authenticateToken, async (req, res, next) => {
         check_in_time,
         check_out_time,
         check_in_method,
-        hours_worked,
         break_duration,
         notes,
         created_at,
@@ -349,21 +357,29 @@ router.get('/', authenticateToken, async (req, res, next) => {
     }
 
     res.json({
-      checkins: checkins.map(checkin => ({
-        id: checkin.id,
-        userId: checkin.user_id,
-        user: checkin.users,
-        locationId: checkin.location_id,
-        location: checkin.locations,
-        assignmentId: checkin.assignment_id,
-        checkInTime: checkin.check_in_time,
-        checkOutTime: checkin.check_out_time,
-        checkInMethod: checkin.check_in_method,
-        hoursWorked: checkin.hours_worked,
-        breakDuration: checkin.break_duration,
-        notes: checkin.notes,
-        createdAt: checkin.created_at
-      })),
+      checkins: checkins.map(checkin => {
+        let hoursWorked = null;
+        if (checkin.check_out_time) {
+          const checkIn = new Date(checkin.check_in_time);
+          const checkOut = new Date(checkin.check_out_time);
+          hoursWorked = Math.round((checkOut - checkIn) / (1000 * 60 * 60) * 100) / 100;
+        }
+        return {
+          id: checkin.id,
+          userId: checkin.user_id,
+          user: checkin.users,
+          locationId: checkin.location_id,
+          location: checkin.locations,
+          assignmentId: checkin.assignment_id,
+          checkInTime: checkin.check_in_time,
+          checkOutTime: checkin.check_out_time,
+          checkInMethod: checkin.check_in_method,
+          hoursWorked: hoursWorked,
+          breakDuration: checkin.break_duration,
+          notes: checkin.notes,
+          createdAt: checkin.created_at
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -442,6 +458,14 @@ router.patch('/:checkinId', authenticateToken, requireRole(['location_manager', 
       });
     }
 
+    // Calcular horas trabajadas si existe check-out
+    let hoursWorked = null;
+    if (checkin.check_out_time) {
+      const checkIn = new Date(checkin.check_in_time);
+      const checkOut = new Date(checkin.check_out_time);
+      hoursWorked = Math.round((checkOut - checkIn) / (1000 * 60 * 60) * 100) / 100;
+    }
+
     logger.info(`Check-in ${checkinId} modificado por ${req.user.email}`);
 
     res.json({
@@ -452,7 +476,7 @@ router.patch('/:checkinId', authenticateToken, requireRole(['location_manager', 
         locationId: checkin.location_id,
         checkInTime: checkin.check_in_time,
         checkOutTime: checkin.check_out_time,
-        hoursWorked: checkin.hours_worked,
+        hoursWorked: hoursWorked,
         breakDuration: checkin.break_duration,
         notes: checkin.notes,
         verifiedBy: checkin.verified_by

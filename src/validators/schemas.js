@@ -22,7 +22,17 @@ const registerSchema = Joi.object({
     'any.required': 'Apellido es requerido'
   }),
   organizationId: Joi.string().uuid().optional(),
-  role: Joi.string().valid('user', 'admin', 'super_admin').default('user')
+  role: Joi.string().valid(
+    'user', 
+    'admin', 
+    'super_admin', 
+    'franchisor_admin', 
+    'franchisor_ceo',
+    'franchisee_admin',
+    'franchisee_owner',
+    'location_manager',
+    'location_supervisor'
+  ).default('user')
 });
 
 // Validación para login
@@ -222,8 +232,10 @@ const checkoutSchema = Joi.object({
   checkinId: Joi.string().uuid().optional().messages({
     'string.uuid': 'ID de check-in debe ser un UUID válido'
   }),
-  breakDuration: Joi.string().pattern(/^\d+:\d{2}:\d{2}$/).optional().messages({
-    'string.pattern.base': 'Duración de descanso debe estar en formato HH:MM:SS'
+  breakDuration: Joi.number().integer().min(0).optional().messages({
+    'number.base': 'Duración de descanso debe ser un número',
+    'number.integer': 'Duración de descanso debe ser un número entero (minutos)',
+    'number.min': 'Duración de descanso no puede ser negativa'
   }),
   notes: Joi.string().max(500).optional()
 });
@@ -233,7 +245,17 @@ const updateUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).optional(),
   lastName: Joi.string().min(2).max(50).optional(),
   email: Joi.string().email().optional(),
-  role: Joi.string().valid('user', 'admin', 'super_admin').optional(),
+  role: Joi.string().valid(
+    'user', 
+    'admin', 
+    'super_admin', 
+    'franchisor_admin', 
+    'franchisor_ceo',
+    'franchisee_admin',
+    'franchisee_owner',
+    'location_manager',
+    'location_supervisor'
+  ).optional(),
   isActive: Joi.boolean().optional()
 });
 

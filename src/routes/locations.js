@@ -113,7 +113,8 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
         max_employees: maxEmployees || 5,
         operating_hours: operatingHours || {},
         timezone: timezone || 'Europe/Madrid',
-        coordinates: coordinates ? `(${coordinates.lat},${coordinates.lng})` : null,
+        latitude: coordinates?.lat || null,
+        longitude: coordinates?.lng || null,
         is_active: true,
         created_at: new Date().toISOString()
       })
@@ -146,7 +147,10 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
         maxEmployees: location.max_employees,
         operatingHours: location.operating_hours,
         timezone: location.timezone,
-        coordinates: location.coordinates,
+        coordinates: location.latitude && location.longitude ? {
+          lat: location.latitude,
+          lng: location.longitude
+        } : null,
         isActive: location.is_active,
         createdAt: location.created_at
       }
@@ -184,7 +188,8 @@ router.get('/', authenticateToken, async (req, res, next) => {
         max_employees,
         operating_hours,
         timezone,
-        coordinates,
+        latitude,
+        longitude,
         is_active,
         created_at,
         updated_at,
@@ -260,7 +265,10 @@ router.get('/', authenticateToken, async (req, res, next) => {
         maxEmployees: location.max_employees,
         operatingHours: location.operating_hours,
         timezone: location.timezone,
-        coordinates: location.coordinates,
+        coordinates: location.latitude && location.longitude ? {
+          lat: location.latitude,
+          lng: location.longitude
+        } : null,
         isActive: location.is_active,
         createdAt: location.created_at,
         updatedAt: location.updated_at
@@ -299,7 +307,8 @@ router.get('/:locationId', authenticateToken, async (req, res, next) => {
         max_employees,
         operating_hours,
         timezone,
-        coordinates,
+        latitude,
+        longitude,
         is_active,
         settings,
         created_at,
@@ -371,7 +380,10 @@ router.get('/:locationId', authenticateToken, async (req, res, next) => {
         maxEmployees: location.max_employees,
         operatingHours: location.operating_hours,
         timezone: location.timezone,
-        coordinates: location.coordinates,
+        coordinates: location.latitude && location.longitude ? {
+          lat: location.latitude,
+          lng: location.longitude
+        } : null,
         isActive: location.is_active,
         settings: location.settings,
         createdAt: location.created_at,
@@ -440,7 +452,10 @@ router.put('/:locationId', authenticateToken, requireRole(['franchisee_owner', '
     if (value.maxEmployees) updateData.max_employees = value.maxEmployees;
     if (value.operatingHours) updateData.operating_hours = value.operatingHours;
     if (value.timezone) updateData.timezone = value.timezone;
-    if (value.coordinates) updateData.coordinates = `(${value.coordinates.lat},${value.coordinates.lng})`;
+    if (value.coordinates) {
+      updateData.latitude = value.coordinates.lat;
+      updateData.longitude = value.coordinates.lng;
+    }
     if (value.isActive !== undefined) updateData.is_active = value.isActive;
     if (value.settings) updateData.settings = value.settings;
     
@@ -478,7 +493,10 @@ router.put('/:locationId', authenticateToken, requireRole(['franchisee_owner', '
         maxEmployees: location.max_employees,
         operatingHours: location.operating_hours,
         timezone: location.timezone,
-        coordinates: location.coordinates,
+        coordinates: location.latitude && location.longitude ? {
+          lat: location.latitude,
+          lng: location.longitude
+        } : null,
         isActive: location.is_active,
         settings: location.settings,
         updatedAt: location.updated_at
