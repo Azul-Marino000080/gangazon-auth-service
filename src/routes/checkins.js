@@ -394,7 +394,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // Aprobar/modificar check-in (solo managers)
-router.patch('/:checkinId', authenticateToken, requireRole(['location_manager', 'location_supervisor', 'franchisee_admin', 'franchisee_owner', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee', 'manager', 'supervisor']), async (req, res, next) => {
   try {
     const { checkinId } = req.params;
     const { checkInTime, checkOutTime, breakDuration, notes, verifiedBy } = req.body;

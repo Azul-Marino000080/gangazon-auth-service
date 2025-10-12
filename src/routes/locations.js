@@ -7,7 +7,7 @@ const { createLocationSchema, updateLocationSchema } = require('../validators/sc
 const { v4: uuidv4 } = require('uuid');
 
 // Crear local (franquiciado o casa matriz)
-router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee_admin', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async (req, res, next) => {
   try {
     const { error, value } = createLocationSchema.validate(req.body);
     if (error) {
@@ -402,7 +402,7 @@ router.get('/:locationId', authenticateToken, async (req, res, next) => {
 });
 
 // Actualizar local
-router.put('/:locationId', authenticateToken, requireRole(['franchisee_owner', 'franchisee_admin', 'location_manager', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.put('/:locationId', authenticateToken, requireRole(['admin', 'franchisee', 'manager']), async (req, res, next) => {
   try {
     const { locationId } = req.params;
     const { error, value } = updateLocationSchema.validate(req.body);
@@ -509,7 +509,7 @@ router.put('/:locationId', authenticateToken, requireRole(['franchisee_owner', '
 });
 
 // Desactivar local
-router.delete('/:locationId', authenticateToken, requireRole(['franchisee_owner', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.delete('/:locationId', authenticateToken, requireRole(['admin', 'franchisee']), async (req, res, next) => {
   try {
     const { locationId } = req.params;
 

@@ -77,8 +77,8 @@ const requireOrgAccess = (req, res, next) => {
   const requestedOrgId = req.params.organizationId || req.body.organizationId;
   const requestedFranchiseId = req.params.franchiseId || req.body.franchiseId;
   
-  // Super admins y casa matriz tienen acceso total
-  if (['franchisor_ceo', 'franchisor_admin', 'super_admin'].includes(req.user.role)) {
+  // Admin tiene acceso total
+  if (req.user.role === 'admin') {
     return next();
   }
   
@@ -91,7 +91,7 @@ const requireOrgAccess = (req, res, next) => {
   }
 
   // Para franquiciados, verificar que la franquicia pertenece a su organización
-  if (requestedFranchiseId && ['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+  if (requestedFranchiseId && req.user.role === 'franchisee') {
     // Esto se verificará en el endpoint específico con query a DB
     // Aquí solo validamos que tiene un rol apropiado
   }
@@ -108,15 +108,15 @@ const requireLocationAccess = async (req, res, next) => {
       return next(); // Si no hay locationId, continuar
     }
 
-    // Super admins y casa matriz tienen acceso total
-    if (['franchisor_ceo', 'franchisor_admin', 'super_admin'].includes(req.user.role)) {
+    // Admin tiene acceso total
+    if (req.user.role === 'admin') {
       return next();
     }
 
     const db = require('../config/database');
 
     // Verificar acceso según el rol
-    if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role === 'franchisee') {
       // Verificar que el local pertenece a una franquicia de su organización
       const { data: location } = await db.getClient()
         .from('locations')
@@ -136,8 +136,8 @@ const requireLocationAccess = async (req, res, next) => {
           message: 'No tienes permisos para acceder a este local'
         });
       }
-    } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
-      // Verificar que es manager del local
+    } else if (['manager', 'supervisor'].includes(req.user.role)) {
+      // Verificar que es manager o supervisor del local
       const { data: location } = await db.getClient()
         .from('locations')
         .select('id')
@@ -148,10 +148,10 @@ const requireLocationAccess = async (req, res, next) => {
       if (!location) {
         return res.status(403).json({
           error: 'Acceso denegado',
-          message: 'No eres manager de este local'
+          message: 'No eres manager/supervisor de este local'
         });
       }
-    } else if (['location_employee', 'location_temp'].includes(req.user.role)) {
+    } else if (req.user.role === 'employee') {
       // Verificar que está asignado al local
       const { data: assignment } = await db.getClient()
         .from('employee_assignments')

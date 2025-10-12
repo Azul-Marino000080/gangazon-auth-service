@@ -7,7 +7,7 @@ const { createFranchiseSchema, updateFranchiseSchema } = require('../validators/
 const { v4: uuidv4 } = require('uuid');
 
 // Crear franquicia (solo casa matriz)
-router.post('/', authenticateToken, requireRole(['franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.post('/', authenticateToken, requireRole(['admin']), async (req, res, next) => {
   try {
     const { error, value } = createFranchiseSchema.validate(req.body);
     if (error) {
@@ -296,7 +296,7 @@ router.get('/:franchiseId', authenticateToken, async (req, res, next) => {
 });
 
 // Actualizar franquicia
-router.put('/:franchiseId', authenticateToken, requireRole(['franchisor_admin', 'franchisor_ceo', 'franchisee_owner', 'super_admin']), async (req, res, next) => {
+router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee']), async (req, res, next) => {
   try {
     const { franchiseId } = req.params;
     const { error, value } = updateFranchiseSchema.validate(req.body);
@@ -381,7 +381,7 @@ router.put('/:franchiseId', authenticateToken, requireRole(['franchisor_admin', 
 });
 
 // Cambiar estado de franquicia (suspender/activar)
-router.patch('/:franchiseId/status', authenticateToken, requireRole(['franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.patch('/:franchiseId/status', authenticateToken, requireRole(['admin']), async (req, res, next) => {
   try {
     const { franchiseId } = req.params;
     const { status } = req.body;

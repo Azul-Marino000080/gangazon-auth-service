@@ -9,120 +9,67 @@ router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const roles = [
       {
-        name: 'user',
-        displayName: 'Usuario',
-        description: 'Usuario básico con permisos limitados',
-        permissions: ['read_own_profile', 'update_own_profile']
-      },
-      // Roles de Casa Matriz (Franquiciador)
-      {
-        name: 'franchisor_ceo',
-        displayName: 'CEO/Director General',
-        description: 'Máxima autoridad de la empresa, acceso total',
+        name: 'admin',
+        displayName: 'Administrador',
+        description: 'Administrador con acceso total al sistema Gangazon',
         permissions: ['all_permissions']
       },
       {
-        name: 'franchisor_admin',
-        displayName: 'Administrador Central',
-        description: 'Administrador de casa matriz con acceso a todas las franquicias',
-        permissions: ['manage_all_franchises', 'manage_all_users', 'view_all_reports', 'system_settings']
-      },
-      {
-        name: 'franchisor_supervisor',
-        displayName: 'Supervisor de Franquicias',
-        description: 'Supervisor de casa matriz que monitorea franquicias',
-        permissions: ['view_all_franchises', 'view_all_reports', 'support_franchises']
-      },
-      {
-        name: 'franchisor_support',
-        displayName: 'Soporte Técnico',
-        description: 'Personal de soporte técnico para franquicias',
-        permissions: ['view_franchise_issues', 'technical_support', 'basic_reports']
-      },
-      // Roles de Franquicia
-      {
-        name: 'franchisee_owner',
-        displayName: 'Propietario de Franquicia',
-        description: 'Dueño de la franquicia con acceso total a sus locales',
+        name: 'franchisee',
+        displayName: 'Franquiciado',
+        description: 'Propietario de franquicia con acceso total a sus locales',
         permissions: ['manage_own_franchise', 'manage_own_locations', 'manage_franchise_users', 'franchise_reports']
       },
       {
-        name: 'franchisee_admin',
-        displayName: 'Administrador de Franquicia',
-        description: 'Administrador de la franquicia, gestiona operaciones',
-        permissions: ['manage_own_locations', 'manage_location_users', 'franchise_reports', 'employee_assignments']
-      },
-      {
-        name: 'franchisee_accountant',
-        displayName: 'Contable de Franquicia',
-        description: 'Contable de la franquicia, acceso a reportes financieros',
-        permissions: ['view_franchise_reports', 'financial_reports', 'payroll_reports']
-      },
-      // Roles de Local
-      {
-        name: 'location_manager',
+        name: 'manager',
         displayName: 'Gerente de Local',
-        description: 'Gerente del local con permisos de gestión local',
+        description: 'Gerente del local con permisos de gestión',
         permissions: ['manage_location', 'manage_location_employees', 'location_reports', 'employee_schedules']
       },
       {
-        name: 'location_supervisor',
-        displayName: 'Supervisor de Local',
+        name: 'supervisor',
+        displayName: 'Supervisor',
         description: 'Supervisor del local, ayuda en la gestión',
         permissions: ['supervise_location', 'view_location_reports', 'employee_checkins']
       },
       {
-        name: 'location_employee',
-        displayName: 'Empleado de Local',
+        name: 'employee',
+        displayName: 'Empleado',
         description: 'Empleado del local con permisos básicos',
         permissions: ['checkin_checkout', 'view_own_schedule', 'basic_location_access']
       },
       {
-        name: 'location_temp',
-        displayName: 'Empleado Temporal',
-        description: 'Empleado temporal/rotativo con permisos limitados',
-        permissions: ['checkin_checkout', 'basic_location_access']
-      },
-      // Roles legacy para retrocompatibilidad
-      {
-        name: 'admin',
-        displayName: 'Administrador (Legacy)',
-        description: 'Administrador básico - usar roles específicos de franquicia',
-        permissions: ['manage_org_users', 'view_org_reports']
-      },
-      {
-        name: 'super_admin',
-        displayName: 'Super Administrador (Legacy)',
-        description: 'Super administrador - usar franchisor_ceo en su lugar',
-        permissions: ['all_permissions']
+        name: 'viewer',
+        displayName: 'Visualizador',
+        description: 'Solo puede ver información, sin permisos de modificación',
+        permissions: ['read_only']
       }
     ];
 
     // Filtrar roles según el usuario
     let availableRoles = roles;
     
-    if (req.user.role === 'user' || req.user.role === 'location_employee' || req.user.role === 'location_temp') {
-      availableRoles = roles.filter(role => ['user', 'location_employee', 'location_temp'].includes(role.name));
-    } else if (req.user.role === 'location_supervisor') {
-      availableRoles = roles.filter(role => 
-        ['user', 'location_employee', 'location_temp', 'location_supervisor'].includes(role.name)
-      );
-    } else if (req.user.role === 'location_manager') {
-      availableRoles = roles.filter(role => 
-        ['user', 'location_employee', 'location_temp', 'location_supervisor', 'location_manager'].includes(role.name)
-      );
-    } else if (req.user.role === 'franchisee_admin' || req.user.role === 'franchisee_owner') {
-      availableRoles = roles.filter(role => 
-        !['franchisor_ceo', 'franchisor_admin', 'franchisor_supervisor', 'super_admin'].includes(role.name)
-      );
-    } else if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      // Pueden ver todos los roles
+    if (req.user.role === 'admin') {
+      // Admin puede ver todos los roles
       availableRoles = roles;
-    } else {
-      // Roles limitados para otros casos
+    } else if (req.user.role === 'franchisee') {
+      // Franquiciado puede asignar roles de local
       availableRoles = roles.filter(role => 
-        ['user', 'location_employee', 'location_temp'].includes(role.name)
+        ['manager', 'supervisor', 'employee', 'viewer'].includes(role.name)
       );
+    } else if (req.user.role === 'manager') {
+      // Manager puede asignar supervisor y empleados
+      availableRoles = roles.filter(role => 
+        ['supervisor', 'employee', 'viewer'].includes(role.name)
+      );
+    } else if (req.user.role === 'supervisor') {
+      // Supervisor puede ver roles básicos
+      availableRoles = roles.filter(role => 
+        ['employee', 'viewer'].includes(role.name)
+      );
+    } else {
+      // Employee y viewer solo ven su propio rol
+      availableRoles = roles.filter(role => role.name === req.user.role);
     }
 
     res.json({

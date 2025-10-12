@@ -7,7 +7,7 @@ const { createAssignmentSchema, updateAssignmentSchema } = require('../validator
 const { v4: uuidv4 } = require('uuid');
 
 // Crear asignación de empleado a local
-router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee_admin', 'location_manager', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.post('/', authenticateToken, requireRole(['admin', 'franchisee', 'manager']), async (req, res, next) => {
   try {
     const { error, value } = createAssignmentSchema.validate(req.body);
     if (error) {
@@ -387,7 +387,7 @@ router.get('/:assignmentId', authenticateToken, async (req, res, next) => {
 });
 
 // Actualizar asignación
-router.put('/:assignmentId', authenticateToken, requireRole(['franchisee_owner', 'franchisee_admin', 'location_manager', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.put('/:assignmentId', authenticateToken, requireRole(['admin', 'franchisee', 'manager']), async (req, res, next) => {
   try {
     const { assignmentId } = req.params;
     const { error, value } = updateAssignmentSchema.validate(req.body);
@@ -483,7 +483,7 @@ router.put('/:assignmentId', authenticateToken, requireRole(['franchisee_owner',
 });
 
 // Finalizar asignación (desactivar)
-router.delete('/:assignmentId', authenticateToken, requireRole(['franchisee_owner', 'franchisee_admin', 'location_manager', 'franchisor_admin', 'franchisor_ceo', 'super_admin']), async (req, res, next) => {
+router.delete('/:assignmentId', authenticateToken, requireRole(['admin', 'franchisee', 'manager']), async (req, res, next) => {
   try {
     const { assignmentId } = req.params;
 

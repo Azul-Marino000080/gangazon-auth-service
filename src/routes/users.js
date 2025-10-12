@@ -104,7 +104,7 @@ router.put('/me', authenticateToken, async (req, res, next) => {
 });
 
 // Listar usuarios (solo para admins)
-router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async (req, res, next) => {
+router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -130,12 +130,8 @@ router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async 
         organizations(name)
       `, { count: 'exact' });
 
-    // Filtros
-    if (req.user.role !== 'super_admin') {
-      query = query.eq('organization_id', req.user.organizationId);
-    } else if (organizationId) {
-      query = query.eq('organization_id', organizationId);
-    }
+    // Filtros - admin siempre ve solo su organización
+    query = query.eq('organization_id', req.user.organizationId);
 
     if (search) {
       query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
@@ -184,7 +180,7 @@ router.get('/', authenticateToken, requireRole(['admin', 'super_admin']), async 
 });
 
 // Obtener usuario por ID (solo para admins)
-router.get('/:userId', authenticateToken, requireRole(['admin', 'super_admin']), requireOrgAccess, async (req, res, next) => {
+router.get('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, async (req, res, next) => {
   try {
     const { userId } = req.params;
 
@@ -205,10 +201,8 @@ router.get('/:userId', authenticateToken, requireRole(['admin', 'super_admin']),
       `)
       .eq('id', userId);
 
-    // Si no es super_admin, solo puede ver usuarios de su organización
-    if (req.user.role !== 'super_admin') {
-      query = query.eq('organization_id', req.user.organizationId);
-    }
+    // Admin solo puede ver usuarios de su organización
+    query = query.eq('organization_id', req.user.organizationId);
 
     const { data: user, error } = await query.single();
 
@@ -241,7 +235,7 @@ router.get('/:userId', authenticateToken, requireRole(['admin', 'super_admin']),
 });
 
 // Actualizar usuario (solo para admins)
-router.put('/:userId', authenticateToken, requireRole(['admin', 'super_admin']), requireOrgAccess, async (req, res, next) => {
+router.put('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, async (req, res, next) => {
   try {
     const { userId } = req.params;
     const { error, value } = updateUserSchema.validate(req.body);
@@ -255,11 +249,8 @@ router.put('/:userId', authenticateToken, requireRole(['admin', 'super_admin']),
     let userQuery = db.getClient()
       .from('users')
       .select('id, organization_id, role')
-      .eq('id', userId);
-
-    if (req.user.role !== 'super_admin') {
-      userQuery = userQuery.eq('organization_id', req.user.organizationId);
-    }
+      .eq('id', userId)
+      .eq('organization_id', req.user.organizationId);
 
     const { data: existingUser, error: userError } = await userQuery.single();
 
@@ -272,19 +263,11 @@ router.put('/:userId', authenticateToken, requireRole(['admin', 'super_admin']),
 
     // Validaciones de permisos para cambio de rol
     if (value.role && value.role !== existingUser.role) {
-      // Solo super_admin puede cambiar roles a super_admin
-      if (value.role === 'super_admin' && req.user.role !== 'super_admin') {
+      // Admin no puede modificar otros admins
+      if (existingUser.role === 'admin') {
         return res.status(403).json({
           error: 'Permisos insuficientes',
-          message: 'Solo super_admin puede asignar el rol de super_admin'
-        });
-      }
-
-      // Admin no puede modificar otros admins o super_admins
-      if (req.user.role === 'admin' && ['admin', 'super_admin'].includes(existingUser.role)) {
-        return res.status(403).json({
-          error: 'Permisos insuficientes',
-          message: 'No puedes modificar usuarios con rol de admin o superior'
+          message: 'No puedes modificar usuarios con rol de admin'
         });
       }
     }
@@ -333,7 +316,7 @@ router.put('/:userId', authenticateToken, requireRole(['admin', 'super_admin']),
 });
 
 // Desactivar usuario (solo para admins)
-router.delete('/:userId', authenticateToken, requireRole(['admin', 'super_admin']), requireOrgAccess, async (req, res, next) => {
+router.delete('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, async (req, res, next) => {
   try {
     const { userId } = req.params;
 
@@ -341,11 +324,8 @@ router.delete('/:userId', authenticateToken, requireRole(['admin', 'super_admin'
     let userQuery = db.getClient()
       .from('users')
       .select('id, organization_id, role, email')
-      .eq('id', userId);
-
-    if (req.user.role !== 'super_admin') {
-      userQuery = userQuery.eq('organization_id', req.user.organizationId);
-    }
+      .eq('id', userId)
+      .eq('organization_id', req.user.organizationId);
 
     const { data: existingUser, error: userError } = await userQuery.single();
 
@@ -364,11 +344,11 @@ router.delete('/:userId', authenticateToken, requireRole(['admin', 'super_admin'
       });
     }
 
-    // Admin no puede desactivar otros admins o super_admins
-    if (req.user.role === 'admin' && ['admin', 'super_admin'].includes(existingUser.role)) {
+    // Admin no puede desactivar otros admins
+    if (existingUser.role === 'admin') {
       return res.status(403).json({
         error: 'Permisos insuficientes',
-        message: 'No puedes desactivar usuarios con rol de admin o superior'
+        message: 'No puedes desactivar usuarios con rol de admin'
       });
     }
 
