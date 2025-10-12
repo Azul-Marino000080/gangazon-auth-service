@@ -90,6 +90,40 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
       return sendError(res, 'Rol inválido', `Solo se permiten roles administrativos: ${allowedRoles.join(', ')}`, 400);
     }
 
+    // Si se especifica organizationId, verificar que existe
+    let finalOrgId = organizationId;
+    if (organizationId) {
+      const orgExists = await recordExists('organizations', { id: organizationId });
+      if (!orgExists) {
+        return sendNotFound(res, 'Organización');
+      }
+    } else {
+      // Buscar o crear organización Gangazon
+      let { data: sysOrg } = await db.getClient()
+        .from('organizations')
+        .select('id')
+        .eq('name', 'Gangazon')
+        .single();
+
+      if (!sysOrg) {
+        const { data: newOrg } = await db.getClient()
+          .from('organizations')
+          .insert({
+            id: GANGAZON_ORG_ID,
+            name: 'Gangazon',
+            description: 'Franquicia matriz de Gangazon',
+            is_active: true,
+            created_at: new Date().toISOString()
+          })
+          .select('id')
+          .single();
+        
+        finalOrgId = newOrg ? newOrg.id : GANGAZON_ORG_ID;
+      } else {
+        finalOrgId = sysOrg.id;
+      }
+    }
+
     // Verificar si el usuario ya existe
     const { data: existingUser } = await db.getClient()
       .from('users')
@@ -156,40 +190,6 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
         }, 'Usuario existente reactivado exitosamente. Tokens generados para login automático');
       } else {
         return sendConflict(res, 'Ya existe un usuario activo con este email');
-      }
-    }
-
-    // Si se especifica organizationId, verificar que existe
-    let finalOrgId = organizationId;
-    if (organizationId) {
-      const orgExists = await recordExists('organizations', { id: organizationId });
-      if (!orgExists) {
-        return sendNotFound(res, 'Organización');
-      }
-    } else {
-      // Buscar o crear organización Gangazon
-      let { data: sysOrg } = await db.getClient()
-        .from('organizations')
-        .select('id')
-        .eq('name', 'Gangazon')
-        .single();
-
-      if (!sysOrg) {
-        const { data: newOrg } = await db.getClient()
-          .from('organizations')
-          .insert({
-            id: GANGAZON_ORG_ID,
-            name: 'Gangazon',
-            description: 'Franquicia matriz de Gangazon',
-            is_active: true,
-            created_at: new Date().toISOString()
-          })
-          .select('id')
-          .single();
-        
-        finalOrgId = newOrg ? newOrg.id : GANGAZON_ORG_ID;
-      } else {
-        finalOrgId = sysOrg.id;
       }
     }
 
