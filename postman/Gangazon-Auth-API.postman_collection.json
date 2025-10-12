@@ -1527,6 +1527,28 @@
 			"item": [
 				{
 					"name": "Create Emergency Admin",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const jsonData = pm.response.json();",
+									"    if (jsonData.tokens) {",
+									"        pm.environment.set('access_token', jsonData.tokens.accessToken);",
+									"        pm.environment.set('refresh_token', jsonData.tokens.refreshToken);",
+									"        console.log('Tokens de emergencia guardados automáticamente');",
+									"    }",
+									"    if (jsonData.user) {",
+									"        pm.environment.set('userId', jsonData.user.id);",
+									"        console.log('User ID guardado:', jsonData.user.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
 					"request": {
 						"method": "POST",
 						"header": [
@@ -1549,7 +1571,7 @@
 							"host": ["{{base_url}}"],
 							"path": ["api", "emergency", "create-admin"]
 						},
-						"description": "⚠️ ENDPOINT DE EMERGENCIA ⚠️\n\nCrea un usuario administrador sin autenticación previa.\n\n**Requisitos:**\n1. Variable de entorno `ENABLE_EMERGENCY_ENDPOINT=true`\n2. Variable de entorno `EMERGENCY_ADMIN_TOKEN` configurada\n3. Header `x-emergency-token` con el token correcto\n\n**IMPORTANTE:** Desactive este endpoint en producción cambiando `ENABLE_EMERGENCY_ENDPOINT=false`\n\n**Roles permitidos:** admin, franchisee"
+						"description": "⚠️ ENDPOINT DE EMERGENCIA ⚠️\n\nCrea un usuario administrador sin autenticación previa y devuelve tokens JWT para login automático.\n\n**Requisitos:**\n1. Variable de entorno `ENABLE_EMERGENCY_ENDPOINT=true`\n2. Variable de entorno `EMERGENCY_ADMIN_TOKEN` configurada\n3. Header `x-emergency-token` con el token correcto\n\n**IMPORTANTE:** Desactive este endpoint en producción cambiando `ENABLE_EMERGENCY_ENDPOINT=false`\n\n**Roles permitidos:** admin, franchisee\n\n**Respuesta incluye:**\n- Usuario creado\n- Access Token (automáticamente guardado)\n- Refresh Token (automáticamente guardado)"
 					},
 					"response": []
 				},

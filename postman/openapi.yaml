@@ -1068,7 +1068,7 @@ paths:
       description: |
         ⚠️ **ENDPOINT DE EMERGENCIA** ⚠️
         
-        Crea un usuario administrador sin autenticación previa.
+        Crea un usuario administrador sin autenticación previa y devuelve tokens JWT para login automático.
         
         **Requisitos:**
         1. Variable de entorno `ENABLE_EMERGENCY_ENDPOINT=true`
@@ -1113,7 +1113,7 @@ paths:
                   default: admin
       responses:
         '201':
-          description: Usuario de emergencia creado
+          description: Usuario de emergencia creado con tokens JWT
           content:
             application/json:
               schema:
@@ -1121,8 +1121,21 @@ paths:
                 properties:
                   message:
                     type: string
+                    example: Usuario administrador creado exitosamente. Tokens generados para login automático
                   user:
                     $ref: '#/components/schemas/User'
+                  tokens:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                        description: Token JWT de acceso (válido 1 hora)
+                      refreshToken:
+                        type: string
+                        description: Token de refresco (válido 7 días)
+                  warning:
+                    type: string
+                    example: IMPORTANTE - Desactive este endpoint cambiando ENABLE_EMERGENCY_ENDPOINT=false en producción
         '403':
           description: Endpoint deshabilitado o token inválido
           content:

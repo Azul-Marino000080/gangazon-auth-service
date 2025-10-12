@@ -119,6 +119,27 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
           return sendError(res, 'Error reactivando usuario', 'No se pudo reactivar el usuario existente', 500);
         }
 
+        // Generar tokens JWT para login automático
+        const accessToken = authUtils.generateAccessToken({
+          id: existingUser.id,
+          email: email,
+          role: selectedRole,
+          organizationId: finalOrgId || GANGAZON_ORG_ID
+        });
+
+        const refreshToken = authUtils.generateRefreshToken();
+
+        // Guardar refresh token en la base de datos
+        await db.getClient()
+          .from('refresh_tokens')
+          .insert({
+            id: uuidv4(),
+            user_id: existingUser.id,
+            token: refreshToken,
+            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            created_at: new Date().toISOString()
+          });
+
         logger.warn(`Usuario de emergencia reactivado: ${email} por IP: ${req.ip}`);
 
         return sendSuccess(res, {
@@ -127,8 +148,12 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
             email: email,
             role: selectedRole,
             reactivated: true
+          },
+          tokens: {
+            accessToken,
+            refreshToken
           }
-        }, 'Usuario existente reactivado exitosamente');
+        }, 'Usuario existente reactivado exitosamente. Tokens generados para login automático');
       } else {
         return sendConflict(res, 'Ya existe un usuario activo con este email');
       }
@@ -194,6 +219,27 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
       return sendError(res, 'Error creando usuario', 'No se pudo crear el usuario administrador', 500);
     }
 
+    // Generar tokens JWT para login automático
+    const accessToken = authUtils.generateAccessToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organization_id
+    });
+
+    const refreshToken = authUtils.generateRefreshToken();
+
+    // Guardar refresh token en la base de datos
+    await db.getClient()
+      .from('refresh_tokens')
+      .insert({
+        id: uuidv4(),
+        user_id: user.id,
+        token: refreshToken,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        created_at: new Date().toISOString()
+      });
+
     logger.warn(`Usuario de emergencia creado: ${email} con rol ${selectedRole} desde IP: ${req.ip}`);
 
     return sendCreated(res, {
@@ -205,8 +251,12 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
         role: user.role,
         organizationId: user.organization_id
       },
+      tokens: {
+        accessToken,
+        refreshToken
+      },
       warning: 'IMPORTANTE: Desactive este endpoint cambiando ENABLE_EMERGENCY_ENDPOINT=false en producción'
-    }, 'Usuario administrador creado exitosamente');
+    }, 'Usuario administrador creado exitosamente. Tokens generados para login automático');
 
   } catch (error) {
     next(error);
