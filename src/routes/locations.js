@@ -37,7 +37,7 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async 
       .select('id, organization_id, max_locations, name')
       .eq('id', franchiseId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
       franchiseQuery = franchiseQuery.eq('organization_id', req.user.organizationId);
     }
 
@@ -430,16 +430,22 @@ router.put('/:locationId', authenticateToken, requireRole(['admin', 'franchisee'
       .select('id, franchise_id, name, manager_id')
       .eq('id', locationId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         locationQuery = locationQuery.in('franchise_id',
           db.getClient()
             .from('franchises')
             .select('id')
             .eq('organization_id', req.user.organizationId)
         );
-      } else if (['location_manager'].includes(req.user.role)) {
-        locationQuery = locationQuery.eq('manager_id', req.user.id);
+      } else if (req.user.role === 'manager') {
+        locationQuery = locationQuery.in('id',
+          db.getClient()
+            .from('employee_assignments')
+            .select('location_id')
+            .eq('user_id', req.user.id)
+            .eq('is_active', true)
+        );
       }
     }
 
@@ -531,7 +537,7 @@ router.delete('/:locationId', authenticateToken, requireRole(['admin', 'franchis
       .select('id, franchise_id, name')
       .eq('id', locationId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
       locationQuery = locationQuery.in('franchise_id',
         db.getClient()
           .from('franchises')
