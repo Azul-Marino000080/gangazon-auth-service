@@ -31,6 +31,47 @@ const registerSchema = Joi.object({
   ).default('employee')
 });
 
+// Validación para crear usuario (via POST /api/users)
+// Requiere franchiseId excepto para admin
+const createUserSchema = Joi.object({
+  email: Joi.string().email().required().messages({
+    'string.email': 'Email debe tener un formato válido',
+    'any.required': 'Email es requerido'
+  }),
+  password: Joi.string().min(8).pattern(new RegExp('^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#\$%\^&\*])')).required().messages({
+    'string.min': 'La contraseña debe tener al menos 8 caracteres',
+    'string.pattern.base': 'La contraseña debe contener al menos una mayúscula, una minúscula, un número y un carácter especial',
+    'any.required': 'Contraseña es requerida'
+  }),
+  firstName: Joi.string().min(2).max(50).required().messages({
+    'string.min': 'El nombre debe tener al menos 2 caracteres',
+    'string.max': 'El nombre no puede exceder 50 caracteres',
+    'any.required': 'Nombre es requerido'
+  }),
+  lastName: Joi.string().min(2).max(50).required().messages({
+    'string.min': 'El apellido debe tener al menos 2 caracteres',
+    'string.max': 'El apellido no puede exceder 50 caracteres',
+    'any.required': 'Apellido es requerido'
+  }),
+  role: Joi.string().valid(
+    'admin',        // Administrador Gangazon (casa matriz)
+    'franchisee',   // Dueño de franquicia
+    'manager',      // Gerente de local
+    'supervisor',   // Supervisor de local
+    'employee',     // Empleado
+    'viewer'        // Solo lectura
+  ).default('employee'),
+  franchiseId: Joi.string().uuid().when('role', {
+    is: 'admin',
+    then: Joi.optional(),
+    otherwise: Joi.required().messages({
+      'any.required': 'FranchiseId es requerido para usuarios no-admin',
+      'string.uuid': 'FranchiseId debe ser un UUID válido'
+    })
+  }),
+  phone: Joi.string().max(20).optional()
+});
+
 // Validación para login
 const loginSchema = Joi.object({
   email: Joi.string().email().required().messages({
@@ -240,6 +281,7 @@ const updateUserSchema = Joi.object({
 
 module.exports = {
   registerSchema,
+  createUserSchema,
   loginSchema,
   refreshTokenSchema,
   changePasswordSchema,

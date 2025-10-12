@@ -2,8 +2,123 @@ const express = require('express');
 const router = express.Router();
 const db = require('../config/database');
 const logger = require('../utils/logger');
+const authUtils = require('../utils/auth');
 const { authenticateToken, requireRole, requireOrgAccess } = require('../middleware/auth');
-const { updateUserSchema } = require('../validators/schemas');
+const { createUserSchema, updateUserSchema } = require('../validators/schemas');
+const { v4: uuidv4 } = require('uuid');
+
+// Crear nuevo usuario (ADMIN o FRANCHISEE)
+// Este es el endpoint correcto para crear usuarios en el sistema
+// Requiere franchiseId excepto para rol admin
+router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async (req, res, next) => {
+  try {
+    const { error, value } = createUserSchema.validate(req.body);
+    if (error) {
+      error.isJoi = true;
+      return next(error);
+    }
+
+    const { email, password, firstName, lastName, role, franchiseId, phone } = value;
+
+    // Verificar si el usuario ya existe
+    const { data: existingUser } = await db.getClient()
+      .from('users')
+      .select('id')
+      .eq('email', email)
+      .single();
+
+    if (existingUser) {
+      return res.status(409).json({
+        error: 'Usuario ya existe',
+        message: 'Ya existe un usuario con este email'
+      });
+    }
+
+    // Si se proporciona franchiseId, verificar que existe
+    if (franchiseId) {
+      const { data: franchise, error: franchiseError } = await db.getClient()
+        .from('franchises')
+        .select('id, organization_id')
+        .eq('id', franchiseId)
+        .single();
+
+      if (franchiseError || !franchise) {
+        return res.status(404).json({
+          error: 'Franquicia no encontrada',
+          message: 'La franquicia especificada no existe'
+        });
+      }
+
+      // Si el usuario es franchisee, verificar permisos
+      if (req.user.role === 'franchisee') {
+        // Un franchisee solo puede crear usuarios en su propia franquicia
+        const { data: userFranchises } = await db.getClient()
+          .from('franchises')
+          .select('id')
+          .eq('franchisee_email', req.user.email);
+
+        const franchiseIds = userFranchises.map(f => f.id);
+        if (!franchiseIds.includes(franchiseId)) {
+          return res.status(403).json({
+            error: 'Acceso denegado',
+            message: 'No tienes permisos para crear usuarios en esta franquicia'
+          });
+        }
+      }
+    }
+
+    // Hash de la contraseña
+    const hashedPassword = await authUtils.hashPassword(password);
+
+    // Crear usuario
+    const { data: user, error: userError } = await db.getClient()
+      .from('users')
+      .insert({
+        id: uuidv4(),
+        email,
+        password_hash: hashedPassword,
+        first_name: firstName,
+        last_name: lastName,
+        organization_id: req.user.organizationId,
+        role: role || 'employee',
+        phone,
+        is_active: true,
+        email_verified: false,
+        created_at: new Date().toISOString()
+      })
+      .select('id, email, first_name, last_name, role, organization_id, is_active, created_at')
+      .single();
+
+    if (userError) {
+      logger.error('Error creando usuario:', userError);
+      return res.status(500).json({
+        error: 'Error creando usuario',
+        message: 'No se pudo crear el usuario'
+      });
+    }
+
+    logger.info(`Usuario creado: ${email} por ${req.user.email}`);
+
+    res.status(201).json({
+      message: 'Usuario creado exitosamente',
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        organizationId: user.organization_id,
+        isActive: user.is_active,
+        createdAt: user.created_at
+      },
+      franchiseId: franchiseId || null,
+      note: franchiseId ? 'Usuario creado. Recuerda asignarlo a un local específico via POST /api/assignments' : 'Usuario admin creado sin franquicia'
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
 
 // Obtener perfil del usuario actual
 router.get('/me', authenticateToken, async (req, res, next) => {

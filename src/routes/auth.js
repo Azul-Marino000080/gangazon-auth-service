@@ -4,11 +4,12 @@ const authUtils = require('../utils/auth');
 const db = require('../config/database');
 const logger = require('../utils/logger');
 const { registerSchema, loginSchema, refreshTokenSchema, changePasswordSchema } = require('../validators/schemas');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 
-// Registro de usuario
-router.post('/register', async (req, res, next) => {
+// Registro de usuario (SOLO ADMIN)
+// Para usuarios normales usar POST /api/users
+router.post('/register', authenticateToken, requireRole(['admin']), async (req, res, next) => {
   try {
     const { error, value } = registerSchema.validate(req.body);
     if (error) {
