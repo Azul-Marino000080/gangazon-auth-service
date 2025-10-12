@@ -146,12 +146,10 @@ router.get('/', authenticateToken, async (req, res, next) => {
       `, { count: 'exact' });
 
     // Filtros según rol del usuario
-    if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      // Casa matriz puede ver todas las franquicias
-      if (organizationId) {
-        query = query.eq('organization_id', organizationId);
-      }
-    } else if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role === 'admin') {
+      // Admin puede ver todas las franquicias de su organización
+      query = query.eq('organization_id', req.user.organizationId);
+    } else if (req.user.role === 'franchisee') {
       // Franquiciados solo pueden ver su propia franquicia
       query = query.eq('organization_id', req.user.organizationId);
     } else {
@@ -241,7 +239,7 @@ router.get('/:franchiseId', authenticateToken, async (req, res, next) => {
       .eq('id', franchiseId);
 
     // Verificar permisos según rol
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
       // Solo pueden ver franquicias de su organización
       query = query.eq('organization_id', req.user.organizationId);
     }
@@ -314,7 +312,7 @@ router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee
       .select('id, organization_id, franchisee_name')
       .eq('id', franchiseId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
       franchiseQuery = franchiseQuery.eq('organization_id', req.user.organizationId);
     }
 

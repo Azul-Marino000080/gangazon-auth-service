@@ -198,12 +198,12 @@ router.get('/', authenticateToken, async (req, res, next) => {
       `, { count: 'exact' });
 
     // Filtros según rol del usuario
-    if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      // Casa matriz puede ver todos los locales
+    if (req.user.role === 'admin') {
+      // Admin puede ver todos los locales
       if (franchiseId) {
         query = query.eq('franchise_id', franchiseId);
       }
-    } else if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    } else if (req.user.role === 'franchisee') {
       // Franquiciados solo pueden ver locales de su organización
       query = query.in('franchise_id', 
         db.getClient()
@@ -214,9 +214,15 @@ router.get('/', authenticateToken, async (req, res, next) => {
       if (franchiseId) {
         query = query.eq('franchise_id', franchiseId);
       }
-    } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
-      // Managers solo ven sus locales asignados
-      query = query.eq('manager_id', req.user.id);
+    } else if (['manager', 'supervisor'].includes(req.user.role)) {
+      // Managers y supervisores solo ven sus locales asignados
+      query = query.in('id',
+        db.getClient()
+          .from('employee_assignments')
+          .select('location_id')
+          .eq('user_id', req.user.id)
+          .eq('is_active', true)
+      );
     } else {
       // Empleados ven locales donde están asignados
       query = query.in('id',
@@ -319,8 +325,8 @@ router.get('/:locationId', authenticateToken, async (req, res, next) => {
       .eq('id', locationId);
 
     // Verificar permisos según rol
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         // Solo locales de su organización
         query = query.in('franchise_id',
           db.getClient()
@@ -328,11 +334,17 @@ router.get('/:locationId', authenticateToken, async (req, res, next) => {
             .select('id')
             .eq('organization_id', req.user.organizationId)
         );
-      } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
+      } else if (['manager', 'supervisor'].includes(req.user.role)) {
         // Solo sus locales asignados
-        query = query.eq('manager_id', req.user.id);
+        query = query.in('id',
+          db.getClient()
+            .from('employee_assignments')
+            .select('location_id')
+            .eq('user_id', req.user.id)
+            .eq('is_active', true)
+        );
       } else {
-        // Solo locales donde está asignado
+        // Empleados: solo locales donde está asignado
         query = query.in('id',
           db.getClient()
             .from('employee_assignments')
@@ -610,11 +622,11 @@ router.get('/:locationId/employees', authenticateToken, async (req, res, next) =
 
 // Función auxiliar para verificar acceso a local
 async function canUserAccessLocation(user, locationId) {
-  if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(user.role)) {
+  if (user.role === 'admin') {
     return true;
   }
 
-  if (['franchisee_owner', 'franchisee_admin'].includes(user.role)) {
+  if (user.role === 'franchisee') {
     const { data } = await db.getClient()
       .from('locations')
       .select('franchise_id')
@@ -629,17 +641,18 @@ async function canUserAccessLocation(user, locationId) {
     return !!data;
   }
 
-  if (['location_manager', 'location_supervisor'].includes(user.role)) {
+  if (['manager', 'supervisor', 'employee'].includes(user.role)) {
     const { data } = await db.getClient()
-      .from('locations')
+      .from('employee_assignments')
       .select('id')
-      .eq('id', locationId)
-      .eq('manager_id', user.id)
+      .eq('location_id', locationId)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
       .single();
     return !!data;
   }
 
-  // Empleados pueden ver locales donde están asignados
+  // Viewer y otros roles sin acceso específico
   const { data } = await db.getClient()
     .from('employee_assignments')
     .select('id')

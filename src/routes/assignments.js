@@ -45,16 +45,22 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee', 'manager
       .select('id, franchise_id, name, max_employees')
       .eq('id', location_id);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         locationQuery = locationQuery.in('franchise_id',
           db.getClient()
             .from('franchises')
             .select('id')
             .eq('organization_id', req.user.organizationId)
         );
-      } else if (['location_manager'].includes(req.user.role)) {
-        locationQuery = locationQuery.eq('manager_id', req.user.id);
+      } else if (req.user.role === 'manager') {
+        locationQuery = locationQuery.in('id',
+          db.getClient()
+            .from('employee_assignments')
+            .select('location_id')
+            .eq('user_id', req.user.id)
+            .eq('is_active', true)
+        );
       }
     }
 
@@ -208,10 +214,10 @@ router.get('/', authenticateToken, async (req, res, next) => {
       `, { count: 'exact' });
 
     // Filtros según rol del usuario
-    if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      // Casa matriz puede ver todas las asignaciones
-    } else if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
-      // Franquiciados solo ven asignaciones de su organización
+    if (req.user.role === 'admin') {
+      // Admin puede ver todas las asignaciones
+    } else if (req.user.role === 'franchisee') {
+      // Franquiciados solo ven asignaciones de sus franquicias
       query = query.in('location_id',
         db.getClient()
           .from('locations')
@@ -223,7 +229,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
               .eq('organization_id', req.user.organizationId)
           )
       );
-    } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
+    } else if (['manager', 'supervisor'].includes(req.user.role)) {
       // Managers solo ven asignaciones de sus locales
       query = query.in('location_id',
         db.getClient()
@@ -327,8 +333,8 @@ router.get('/:assignmentId', authenticateToken, async (req, res, next) => {
       .eq('id', assignmentId);
 
     // Verificar permisos según rol
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         query = query.in('location_id',
           db.getClient()
             .from('locations')
@@ -340,12 +346,13 @@ router.get('/:assignmentId', authenticateToken, async (req, res, next) => {
                 .eq('organization_id', req.user.organizationId)
             )
         );
-      } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
+      } else if (['manager', 'supervisor'].includes(req.user.role)) {
         query = query.in('location_id',
           db.getClient()
-            .from('locations')
-            .select('id')
-            .eq('manager_id', req.user.id)
+            .from('employee_assignments')
+            .select('location_id')
+            .eq('user_id', req.user.id)
+            .eq('is_active', true)
         );
       } else {
         query = query.eq('user_id', req.user.id);
@@ -403,8 +410,8 @@ router.put('/:assignmentId', authenticateToken, requireRole(['admin', 'franchise
       .select('id, location_id, user_id')
       .eq('id', assignmentId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         assignmentQuery = assignmentQuery.in('location_id',
           db.getClient()
             .from('locations')
@@ -416,7 +423,7 @@ router.put('/:assignmentId', authenticateToken, requireRole(['admin', 'franchise
                 .eq('organization_id', req.user.organizationId)
             )
         );
-      } else if (['location_manager'].includes(req.user.role)) {
+      } else if (['manager', 'supervisor'].includes(req.user.role)) {
         assignmentQuery = assignmentQuery.in('location_id',
           db.getClient()
             .from('locations')
@@ -493,8 +500,8 @@ router.delete('/:assignmentId', authenticateToken, requireRole(['admin', 'franch
       .select('id, location_id, user_id')
       .eq('id', assignmentId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         assignmentQuery = assignmentQuery.in('location_id',
           db.getClient()
             .from('locations')
@@ -506,12 +513,13 @@ router.delete('/:assignmentId', authenticateToken, requireRole(['admin', 'franch
                 .eq('organization_id', req.user.organizationId)
             )
         );
-      } else if (['location_manager'].includes(req.user.role)) {
+      } else if (req.user.role === 'manager') {
         assignmentQuery = assignmentQuery.in('location_id',
           db.getClient()
-            .from('locations')
-            .select('id')
-            .eq('manager_id', req.user.id)
+            .from('employee_assignments')
+            .select('location_id')
+            .eq('user_id', req.user.id)
+            .eq('is_active', true)
         );
       }
     }

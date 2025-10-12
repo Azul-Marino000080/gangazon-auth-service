@@ -303,10 +303,10 @@ router.get('/', authenticateToken, async (req, res, next) => {
       `, { count: 'exact' });
 
     // Filtros según rol del usuario
-    if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      // Casa matriz puede ver todos los check-ins
-    } else if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
-      // Franquiciados solo ven check-ins de su organización
+    if (req.user.role === 'admin') {
+      // Admin puede ver todos los check-ins
+    } else if (req.user.role === 'franchisee') {
+      // Franquiciados solo ven check-ins de sus franquicias
       query = query.in('location_id',
         db.getClient()
           .from('locations')
@@ -318,7 +318,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
               .eq('organization_id', req.user.organizationId)
           )
       );
-    } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
+    } else if (['manager', 'supervisor'].includes(req.user.role)) {
       // Managers solo ven check-ins de sus locales
       query = query.in('location_id',
         db.getClient()
@@ -405,8 +405,8 @@ router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee
       .select('id, location_id, user_id')
       .eq('id', checkinId);
 
-    if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
-      if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
         checkinQuery = checkinQuery.in('location_id',
           db.getClient()
             .from('locations')
@@ -418,7 +418,7 @@ router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee
                 .eq('organization_id', req.user.organizationId)
             )
         );
-      } else if (['location_manager', 'location_supervisor'].includes(req.user.role)) {
+      } else if (['manager', 'supervisor'].includes(req.user.role)) {
         checkinQuery = checkinQuery.in('location_id',
           db.getClient()
             .from('locations')
@@ -525,11 +525,11 @@ router.get('/location/:locationId/active', authenticateToken, async (req, res, n
 
 // Función auxiliar para verificar acceso a local (reutilizada de locations.js)
 async function canUserAccessLocation(user, locationId) {
-  if (['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(user.role)) {
+  if (user.role === 'admin') {
     return true;
   }
 
-  if (['franchisee_owner', 'franchisee_admin'].includes(user.role)) {
+  if (user.role === 'franchisee') {
     const { data } = await db.getClient()
       .from('locations')
       .select('franchise_id')
@@ -544,7 +544,7 @@ async function canUserAccessLocation(user, locationId) {
     return !!data;
   }
 
-  if (['location_manager', 'location_supervisor'].includes(user.role)) {
+  if (['manager', 'supervisor', 'employee'].includes(user.role)) {
     const { data } = await db.getClient()
       .from('locations')
       .select('id')
