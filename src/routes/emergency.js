@@ -155,14 +155,14 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
 
         // Generar tokens JWT para login automático
         const accessToken = authUtils.generateAccessToken({
-          id: existingUser.id,
+          userId: existingUser.id,
           email: email,
           role: selectedRole,
           organizationId: finalOrgId || GANGAZON_ORG_ID
         });
 
         const refreshToken = authUtils.generateRefreshToken({
-          id: existingUser.id,
+          userId: existingUser.id,
           email: email
         });
 
@@ -183,7 +183,10 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
           user: {
             id: existingUser.id,
             email: email,
+            firstName: firstName,
+            lastName: lastName,
             role: selectedRole,
+            organizationId: finalOrgId || GANGAZON_ORG_ID,
             reactivated: true
           },
           tokens: {
@@ -224,14 +227,14 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
 
     // Generar tokens JWT para login automático
     const accessToken = authUtils.generateAccessToken({
-      id: user.id,
+      userId: user.id,
       email: user.email,
       role: user.role,
       organizationId: user.organization_id
     });
 
     const refreshToken = authUtils.generateRefreshToken({
-      id: user.id,
+      userId: user.id,
       email: user.email
     });
 
