@@ -226,6 +226,7 @@ const updateUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).optional(),
   lastName: Joi.string().min(2).max(50).optional(),
   email: Joi.string().email().optional(),
+  phone: Joi.string().max(20).optional(),
   role: Joi.string().valid(
     'admin',        // Administrador Gangazon
     'franchisee',   // Dueño de franquicia

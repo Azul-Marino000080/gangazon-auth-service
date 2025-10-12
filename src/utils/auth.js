@@ -8,7 +8,7 @@ class AuthUtils {
       payload,
       process.env.JWT_SECRET,
       { 
-        expiresIn: process.env.JWT_EXPIRES_IN || '15m',
+        expiresIn: process.env.JWT_EXPIRES_IN || '30m',
         issuer: 'gangazon-auth',
         audience: 'gangazon-apps'
       }

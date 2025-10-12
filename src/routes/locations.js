@@ -292,9 +292,9 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // Obtener local por ID
-router.get('/:locationId', authenticateToken, async (req, res, next) => {
+router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const { locationId } = req.params;
+    const { id: locationId } = req.params;
 
     let query = db.getClient()
       .from('locations')
@@ -604,9 +604,12 @@ router.get('/:locationId/employees', authenticateToken, async (req, res, next) =
       });
     }
 
-    // Obtener empleados activos usando la función de base de datos
-    const { data: employees, error } = await db.getClient()
-      .rpc('get_location_active_employees', { p_location_id: locationId });
+    // Obtener empleados activos del local
+    const { data: assignments, error } = await db.getClient()
+      .from('employee_assignments')
+      .select('user_id, role_at_location, start_date, shift_type')
+      .eq('location_id', locationId)
+      .eq('is_active', true);
 
     if (error) {
       return res.status(500).json({
@@ -617,7 +620,7 @@ router.get('/:locationId/employees', authenticateToken, async (req, res, next) =
 
     res.json({
       locationId,
-      employees: employees || []
+      employees: assignments || []
     });
 
   } catch (error) {

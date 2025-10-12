@@ -392,6 +392,96 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+// Obtener check-in por ID
+router.get('/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    let query = db.getClient()
+      .from('employee_checkins')
+      .select(`
+        id,
+        user_id,
+        location_id,
+        assignment_id,
+        check_in_time,
+        check_out_time,
+        check_in_method,
+        break_duration,
+        notes,
+        created_at,
+        locations(name, address, franchise_id, franchises(name))
+      `)
+      .eq('id', id);
+
+    // Filtrar según permisos
+    if (req.user.role === 'admin') {
+      // Admin puede ver todo
+    } else if (req.user.role === 'franchisee') {
+      query = query.in('location_id',
+        db.getClient()
+          .from('locations')
+          .select('id')
+          .in('franchise_id',
+            db.getClient()
+              .from('franchises')
+              .select('id')
+              .eq('organization_id', req.user.organizationId)
+          )
+      );
+    } else if (['manager', 'supervisor'].includes(req.user.role)) {
+      query = query.in('location_id',
+        db.getClient()
+          .from('employee_assignments')
+          .select('location_id')
+          .eq('user_id', req.user.id)
+          .eq('is_active', true)
+      );
+    } else {
+      // Employee solo ve sus propios checkins
+      query = query.eq('user_id', req.user.id);
+    }
+
+    const { data: checkin, error } = await query.single();
+
+    if (error || !checkin) {
+      return res.status(404).json({
+        error: 'Check-in no encontrado',
+        message: 'No se pudo encontrar el check-in o no tienes permisos'
+      });
+    }
+
+    // Calcular horas trabajadas si hay check-out
+    let hoursWorked = null;
+    if (checkin.check_out_time) {
+      const checkInTime = new Date(checkin.check_in_time);
+      const checkOutTime = new Date(checkin.check_out_time);
+      const diffMs = checkOutTime - checkInTime;
+      hoursWorked = (diffMs / (1000 * 60 * 60)).toFixed(2);
+    }
+
+    res.json({
+      checkin: {
+        id: checkin.id,
+        userId: checkin.user_id,
+        locationId: checkin.location_id,
+        location: checkin.locations,
+        assignmentId: checkin.assignment_id,
+        checkInTime: checkin.check_in_time,
+        checkOutTime: checkin.check_out_time,
+        checkInMethod: checkin.check_in_method,
+        hoursWorked: hoursWorked,
+        breakDuration: checkin.break_duration,
+        notes: checkin.notes,
+        createdAt: checkin.created_at
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Aprobar/modificar check-in (solo managers)
 router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee', 'manager', 'supervisor']), async (req, res, next) => {
   try {

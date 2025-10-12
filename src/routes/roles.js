@@ -81,6 +81,72 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+// Obtener información de un rol específico
+router.get('/:name', authenticateToken, async (req, res, next) => {
+  try {
+    const { name } = req.params;
+
+    const rolesData = {
+      admin: {
+        name: 'admin',
+        displayName: 'Administrador',
+        description: 'Administrador con acceso total al sistema Gangazon',
+        permissions: ['all_permissions'],
+        level: 1
+      },
+      franchisee: {
+        name: 'franchisee',
+        displayName: 'Franquiciado',
+        description: 'Propietario de franquicia con acceso total a sus locales',
+        permissions: ['manage_own_franchise', 'manage_own_locations', 'manage_franchise_users', 'franchise_reports'],
+        level: 2
+      },
+      manager: {
+        name: 'manager',
+        displayName: 'Gerente de Local',
+        description: 'Gerente del local con permisos de gestión',
+        permissions: ['manage_location', 'manage_location_employees', 'location_reports', 'employee_schedules'],
+        level: 3
+      },
+      supervisor: {
+        name: 'supervisor',
+        displayName: 'Supervisor',
+        description: 'Supervisor del local, ayuda en la gestión',
+        permissions: ['supervise_location', 'view_location_reports', 'employee_checkins'],
+        level: 4
+      },
+      employee: {
+        name: 'employee',
+        displayName: 'Empleado',
+        description: 'Empleado del local con permisos básicos',
+        permissions: ['checkin_checkout', 'view_own_schedule', 'basic_location_access'],
+        level: 5
+      },
+      viewer: {
+        name: 'viewer',
+        displayName: 'Visualizador',
+        description: 'Solo puede ver información, sin permisos de modificación',
+        permissions: ['read_only'],
+        level: 6
+      }
+    };
+
+    const role = rolesData[name];
+
+    if (!role) {
+      return res.status(404).json({
+        error: 'Rol no encontrado',
+        message: `El rol '${name}' no existe en el sistema`
+      });
+    }
+
+    res.json({ role });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Obtener permisos de un rol específico
 router.get('/:roleName/permissions', authenticateToken, async (req, res, next) => {
   try {

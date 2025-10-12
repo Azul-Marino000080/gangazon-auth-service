@@ -305,9 +305,9 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // Obtener asignación por ID
-router.get('/:assignmentId', authenticateToken, async (req, res, next) => {
+router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const { assignmentId } = req.params;
+    const { id: assignmentId } = req.params;
 
     let query = db.getClient()
       .from('employee_assignments')
@@ -565,7 +565,7 @@ router.get('/user/:userId/active', authenticateToken, async (req, res, next) => 
     const { userId } = req.params;
 
     // Verificar permisos para ver asignaciones del usuario
-    if (req.user.id !== userId && !['franchisee_owner', 'franchisee_admin', 'location_manager', 'franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
+    if (req.user.id !== userId && !['admin', 'franchisee', 'manager'].includes(req.user.role)) {
       return res.status(403).json({
         error: 'Acceso denegado',
         message: 'No tienes permisos para ver las asignaciones de este usuario'
