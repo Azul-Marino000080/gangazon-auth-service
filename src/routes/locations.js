@@ -356,8 +356,7 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
         settings,
         created_at,
         updated_at,
-        franchises(name, organization_id, franchisee_name),
-        users(first_name, last_name, email)
+        franchises(name, organization_id, franchisee_name)
       `)
       .eq('id', locationId);
 

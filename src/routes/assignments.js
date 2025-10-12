@@ -377,9 +377,7 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
         notes,
         created_at,
         updated_at,
-        users!employee_assignments_user_id_fkey(first_name, last_name, email),
-        locations(name, address, franchise_id, franchises(name, organization_id)),
-        users!employee_assignments_assigned_by_fkey(first_name, last_name, email)
+        locations(name, address, franchise_id, franchises(name, organization_id))
       `)
       .eq('id', assignmentId);
 
@@ -423,7 +421,6 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       assignment: {
         id: assignment.id,
         userId: assignment.user_id,
-        user: assignment.users,
         locationId: assignment.location_id,
         location: assignment.locations,
         roleAtLocation: assignment.role_at_location,
@@ -431,7 +428,6 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
         endDate: assignment.end_date,
         shiftType: assignment.shift_type,
         assignedBy: assignment.assigned_by,
-        assignedByUser: assignment.users,
         isActive: assignment.is_active,
         notes: assignment.notes,
         createdAt: assignment.created_at,
