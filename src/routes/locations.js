@@ -291,6 +291,44 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+// Obtener empleados activos en un local (DEBE IR ANTES DE /:id)
+router.get('/:locationId/employees', authenticateToken, async (req, res, next) => {
+  try {
+    const { locationId } = req.params;
+
+    // Verificar permisos para ver el local
+    const canAccess = await canUserAccessLocation(req.user, locationId);
+    if (!canAccess) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'No tienes permisos para ver este local'
+      });
+    }
+
+    // Obtener empleados activos del local
+    const { data: assignments, error } = await db.getClient()
+      .from('employee_assignments')
+      .select('user_id, role_at_location, start_date, shift_type')
+      .eq('location_id', locationId)
+      .eq('is_active', true);
+
+    if (error) {
+      return res.status(500).json({
+        error: 'Error obteniendo empleados',
+        message: 'No se pudieron obtener los empleados del local'
+      });
+    }
+
+    res.json({
+      locationId,
+      employees: assignments || []
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Obtener local por ID
 router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
@@ -583,44 +621,6 @@ router.delete('/:locationId', authenticateToken, requireRole(['admin', 'franchis
 
     res.json({
       message: 'Local desactivado exitosamente'
-    });
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Obtener empleados activos en un local
-router.get('/:locationId/employees', authenticateToken, async (req, res, next) => {
-  try {
-    const { locationId } = req.params;
-
-    // Verificar permisos para ver el local
-    const canAccess = await canUserAccessLocation(req.user, locationId);
-    if (!canAccess) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes permisos para ver este local'
-      });
-    }
-
-    // Obtener empleados activos del local
-    const { data: assignments, error } = await db.getClient()
-      .from('employee_assignments')
-      .select('user_id, role_at_location, start_date, shift_type')
-      .eq('location_id', locationId)
-      .eq('is_active', true);
-
-    if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo empleados',
-        message: 'No se pudieron obtener los empleados del local'
-      });
-    }
-
-    res.json({
-      locationId,
-      employees: assignments || []
     });
 
   } catch (error) {

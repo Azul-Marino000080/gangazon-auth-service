@@ -304,6 +304,59 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+// Obtener asignaciones activas de un usuario (DEBE IR ANTES DE /:id)
+router.get('/user/:userId/active', authenticateToken, async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    // Verificar permisos para ver asignaciones del usuario
+    if (req.user.id !== userId && !['admin', 'franchisee', 'manager'].includes(req.user.role)) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'No tienes permisos para ver las asignaciones de este usuario'
+      });
+    }
+
+    const { data: assignments, error } = await db.getClient()
+      .from('employee_assignments')
+      .select(`
+        id,
+        location_id,
+        role_at_location,
+        start_date,
+        end_date,
+        shift_type,
+        locations(name, address, franchise_id, franchises(name))
+      `)
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .order('start_date', { ascending: false });
+
+    if (error) {
+      return res.status(500).json({
+        error: 'Error obteniendo asignaciones',
+        message: 'No se pudieron obtener las asignaciones del usuario'
+      });
+    }
+
+    res.json({
+      userId,
+      assignments: assignments.map(assignment => ({
+        id: assignment.id,
+        locationId: assignment.location_id,
+        location: assignment.locations,
+        roleAtLocation: assignment.role_at_location,
+        startDate: assignment.start_date,
+        endDate: assignment.end_date,
+        shiftType: assignment.shift_type
+      }))
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Obtener asignación por ID
 router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
@@ -552,59 +605,6 @@ router.delete('/:assignmentId', authenticateToken, requireRole(['admin', 'franch
 
     res.json({
       message: 'Asignación finalizada exitosamente'
-    });
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Obtener asignaciones activas de un usuario
-router.get('/user/:userId/active', authenticateToken, async (req, res, next) => {
-  try {
-    const { userId } = req.params;
-
-    // Verificar permisos para ver asignaciones del usuario
-    if (req.user.id !== userId && !['admin', 'franchisee', 'manager'].includes(req.user.role)) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes permisos para ver las asignaciones de este usuario'
-      });
-    }
-
-    const { data: assignments, error } = await db.getClient()
-      .from('employee_assignments')
-      .select(`
-        id,
-        location_id,
-        role_at_location,
-        start_date,
-        end_date,
-        shift_type,
-        locations(name, address, franchise_id, franchises(name))
-      `)
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .order('start_date', { ascending: false });
-
-    if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo asignaciones',
-        message: 'No se pudieron obtener las asignaciones del usuario'
-      });
-    }
-
-    res.json({
-      userId,
-      assignments: assignments.map(assignment => ({
-        id: assignment.id,
-        locationId: assignment.location_id,
-        location: assignment.locations,
-        roleAtLocation: assignment.role_at_location,
-        startDate: assignment.start_date,
-        endDate: assignment.end_date,
-        shiftType: assignment.shift_type
-      }))
     });
 
   } catch (error) {
