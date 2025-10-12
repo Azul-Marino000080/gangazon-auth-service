@@ -16,12 +16,12 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
     }
 
     const { 
-      userId, 
-      locationId, 
-      roleAtLocation,
-      startDate,
-      endDate,
-      shiftType,
+      user_id, 
+      location_id, 
+      role_at_location,
+      start_date,
+      end_date,
+      shift_type,
       notes
     } = value;
 
@@ -29,7 +29,7 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
     const { data: user, error: userError } = await db.getClient()
       .from('users')
       .select('id, organization_id, email, first_name, last_name')
-      .eq('id', userId)
+      .eq('id', user_id)
       .single();
 
     if (userError || !user) {
@@ -43,7 +43,7 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
     let locationQuery = db.getClient()
       .from('locations')
       .select('id, franchise_id, name, max_employees')
-      .eq('id', locationId);
+      .eq('id', location_id);
 
     if (!['franchisor_admin', 'franchisor_ceo', 'super_admin'].includes(req.user.role)) {
       if (['franchisee_owner', 'franchisee_admin'].includes(req.user.role)) {
@@ -85,7 +85,7 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
     const { count: currentEmployees } = await db.getClient()
       .from('employee_assignments')
       .select('*', { count: 'exact', head: true })
-      .eq('location_id', locationId)
+      .eq('location_id', location_id)
       .eq('is_active', true);
 
     if (currentEmployees >= location.max_employees) {
@@ -99,13 +99,13 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
     let conflictQuery = db.getClient()
       .from('employee_assignments')
       .select('id')
-      .eq('user_id', userId)
-      .eq('location_id', locationId)
+      .eq('user_id', user_id)
+      .eq('location_id', location_id)
       .eq('is_active', true)
-      .gte('start_date', startDate);
+      .gte('start_date', start_date);
 
-    if (endDate) {
-      conflictQuery = conflictQuery.lte('start_date', endDate);
+    if (end_date) {
+      conflictQuery = conflictQuery.lte('start_date', end_date);
     }
 
     const { data: conflictingAssignment } = await conflictQuery.single();
@@ -122,12 +122,12 @@ router.post('/', authenticateToken, requireRole(['franchisee_owner', 'franchisee
       .from('employee_assignments')
       .insert({
         id: uuidv4(),
-        user_id: userId,
-        location_id: locationId,
-        role_at_location: roleAtLocation || 'location_employee',
-        start_date: startDate,
-        end_date: endDate,
-        shift_type: shiftType || 'full_time',
+        user_id: user_id,
+        location_id: location_id,
+        role_at_location: role_at_location || 'location_employee',
+        start_date: start_date,
+        end_date: end_date,
+        shift_type: shift_type || 'full_time',
         assigned_by: req.user.id,
         is_active: true,
         notes,
@@ -436,11 +436,11 @@ router.put('/:assignmentId', authenticateToken, requireRole(['franchisee_owner',
     }
 
     const updateData = {};
-    if (value.roleAtLocation) updateData.role_at_location = value.roleAtLocation;
-    if (value.startDate) updateData.start_date = value.startDate;
-    if (value.endDate !== undefined) updateData.end_date = value.endDate;
-    if (value.shiftType) updateData.shift_type = value.shiftType;
-    if (value.isActive !== undefined) updateData.is_active = value.isActive;
+    if (value.role_at_location) updateData.role_at_location = value.role_at_location;
+    if (value.start_date) updateData.start_date = value.start_date;
+    if (value.end_date !== undefined) updateData.end_date = value.end_date;
+    if (value.shift_type) updateData.shift_type = value.shift_type;
+    if (value.is_active !== undefined) updateData.is_active = value.is_active;
     if (value.notes !== undefined) updateData.notes = value.notes;
     
     updateData.updated_at = new Date().toISOString();

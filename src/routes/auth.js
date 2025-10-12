@@ -374,4 +374,54 @@ router.post('/verify', authenticateToken, (req, res) => {
   });
 });
 
+// Obtener perfil del usuario autenticado
+router.get('/profile', authenticateToken, async (req, res, next) => {
+  try {
+    // Obtener información completa del usuario
+    const { data: user, error: userError } = await db.getClient()
+      .from('users')
+      .select(`
+        id,
+        email,
+        first_name,
+        last_name,
+        role,
+        organization_id,
+        is_active,
+        email_verified,
+        last_login_at,
+        created_at,
+        organizations(id, name, type)
+      `)
+      .eq('id', req.user.id)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({
+        error: 'Usuario no encontrado',
+        message: 'No se pudo encontrar el usuario'
+      });
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role,
+        organizationId: user.organization_id,
+        organization: user.organizations,
+        isActive: user.is_active,
+        emailVerified: user.email_verified,
+        lastLogin: user.last_login_at,
+        createdAt: user.created_at
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

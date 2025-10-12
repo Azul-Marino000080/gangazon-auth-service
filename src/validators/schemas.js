@@ -183,33 +183,33 @@ const updateLocationSchema = Joi.object({
 
 // Validación para crear asignación de empleado
 const createAssignmentSchema = Joi.object({
-  userId: Joi.string().uuid().required().messages({
+  user_id: Joi.string().uuid().required().messages({
     'any.required': 'ID de usuario es requerido',
     'string.uuid': 'ID de usuario debe ser un UUID válido'
   }),
-  locationId: Joi.string().uuid().required().messages({
+  location_id: Joi.string().uuid().required().messages({
     'any.required': 'ID de local es requerido',
     'string.uuid': 'ID de local debe ser un UUID válido'
   }),
-  roleAtLocation: Joi.string().valid('location_manager', 'location_supervisor', 'location_employee', 'location_temp').default('location_employee'),
-  startDate: Joi.date().iso().required().messages({
+  role_at_location: Joi.string().valid('location_manager', 'location_supervisor', 'location_employee', 'location_temp', 'employee').default('location_employee'),
+  start_date: Joi.date().iso().required().messages({
     'any.required': 'Fecha de inicio es requerida',
     'date.iso': 'Fecha debe estar en formato ISO'
   }),
-  endDate: Joi.date().iso().greater(Joi.ref('startDate')).optional().messages({
+  end_date: Joi.date().iso().greater(Joi.ref('start_date')).optional().messages({
     'date.greater': 'Fecha de fin debe ser posterior a la fecha de inicio'
   }),
-  shiftType: Joi.string().valid('full_time', 'part_time', 'temporary', 'cover').default('full_time'),
+  shift_type: Joi.string().valid('full_time', 'part_time', 'temporary', 'cover').default('full_time'),
   notes: Joi.string().max(500).optional()
 });
 
 // Validación para actualizar asignación
 const updateAssignmentSchema = Joi.object({
-  roleAtLocation: Joi.string().valid('location_manager', 'location_supervisor', 'location_employee', 'location_temp').optional(),
-  startDate: Joi.date().iso().optional(),
-  endDate: Joi.date().iso().optional(),
-  shiftType: Joi.string().valid('full_time', 'part_time', 'temporary', 'cover').optional(),
-  isActive: Joi.boolean().optional(),
+  role_at_location: Joi.string().valid('location_manager', 'location_supervisor', 'location_employee', 'location_temp', 'employee').optional(),
+  start_date: Joi.date().iso().optional(),
+  end_date: Joi.date().iso().optional(),
+  shift_type: Joi.string().valid('full_time', 'part_time', 'temporary', 'cover').optional(),
+  is_active: Joi.boolean().optional(),
   notes: Joi.string().max(500).optional()
 });
 
