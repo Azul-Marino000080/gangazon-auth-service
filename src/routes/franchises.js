@@ -16,7 +16,6 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res, nex
     }
 
     const { 
-      organizationId, 
       name, 
       franchiseeName, 
       franchiseeEmail, 
@@ -27,6 +26,9 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res, nex
       maxEmployees,
       billingTier
     } = value;
+
+    // Usar el organizationId del usuario autenticado
+    const organizationId = req.user.organizationId;
 
     // Verificar que la organización existe
     const { data: organization, error: orgError } = await db.getClient()
