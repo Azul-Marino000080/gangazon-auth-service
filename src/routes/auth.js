@@ -5,33 +5,27 @@ const db = require('../config/database');
 const logger = require('../utils/logger');
 const { registerSchema, loginSchema, refreshTokenSchema, changePasswordSchema } = require('../validators/schemas');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { getGangazonOrganization } = require('../utils/permissions');
 const { v4: uuidv4 } = require('uuid');
+const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict } = require('../utils/responseHelpers');
+const { validate } = require('../middleware/validation');
+const { recordExists } = require('../utils/queryHelpers');
+const { TOKENS, MESSAGES } = require('../utils/constants');
 
 // Registro de usuario (SOLO ADMIN)
 // Para usuarios normales usar POST /api/users
-router.post('/register', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+router.post('/register', authenticateToken, requireRole(['admin']), validate(registerSchema), async (req, res, next) => {
   try {
-    const { error, value } = registerSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
-    const { email, password, firstName, lastName, organizationId, role } = value;
+    const { email, password, firstName, lastName, role } = req.body;
 
     // Verificar si el usuario ya existe
-    const { data: existingUser } = await db.getClient()
-      .from('users')
-      .select('id')
-      .eq('email', email)
-      .single();
-
-    if (existingUser) {
-      return res.status(409).json({
-        error: 'Usuario ya existe',
-        message: 'Ya existe un usuario con este email'
-      });
+    const exists = await recordExists('users', { email });
+    if (exists) {
+      return sendConflict(res, 'Ya existe un usuario con este email');
     }
+
+    // Obtener organización Gangazon (única organización)
+    const organizationId = await getGangazonOrganization();
 
     // Hash de la contraseña
     const hashedPassword = await authUtils.hashPassword(password);
@@ -46,7 +40,7 @@ router.post('/register', authenticateToken, requireRole(['admin']), async (req, 
         first_name: firstName,
         last_name: lastName,
         organization_id: organizationId,
-        role: role || 'user',
+        role: role || 'employee',
         is_active: true,
         email_verified: false,
         created_at: new Date().toISOString()
@@ -56,10 +50,7 @@ router.post('/register', authenticateToken, requireRole(['admin']), async (req, 
 
     if (userError) {
       logger.error('Error creando usuario:', userError);
-      return res.status(500).json({
-        error: 'Error creando usuario',
-        message: 'No se pudo crear el usuario'
-      });
+      return sendError(res, 'Error creando usuario', 'No se pudo crear el usuario', 500);
     }
 
     // Generar tokens
@@ -80,14 +71,13 @@ router.post('/register', authenticateToken, requireRole(['admin']), async (req, 
         id: uuidv4(),
         user_id: user.id,
         token: refreshToken,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 días
+        expires_at: new Date(Date.now() + TOKENS.REFRESH_TOKEN_EXPIRY_MS).toISOString(),
         created_at: new Date().toISOString()
       });
 
     logger.info(`Usuario registrado: ${email}`);
 
-    res.status(201).json({
-      message: 'Usuario registrado exitosamente',
+    return sendCreated(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -96,11 +86,8 @@ router.post('/register', authenticateToken, requireRole(['admin']), async (req, 
         role: user.role,
         organizationId: user.organization_id
       },
-      tokens: {
-        accessToken,
-        refreshToken
-      }
-    });
+      tokens: { accessToken, refreshToken }
+    }, 'Usuario registrado exitosamente');
 
   } catch (error) {
     next(error);
@@ -108,15 +95,9 @@ router.post('/register', authenticateToken, requireRole(['admin']), async (req, 
 });
 
 // Login de usuario
-router.post('/login', async (req, res, next) => {
+router.post('/login', validate(loginSchema), async (req, res, next) => {
   try {
-    const { error, value } = loginSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
-    const { email, password } = value;
+    const { email, password } = req.body;
 
     // Buscar usuario
     const { data: user, error: userError } = await db.getClient()
@@ -126,26 +107,17 @@ router.post('/login', async (req, res, next) => {
       .single();
 
     if (userError || !user) {
-      return res.status(401).json({
-        error: 'Credenciales inválidas',
-        message: 'Email o contraseña incorrectos'
-      });
+      return sendError(res, MESSAGES.INVALID_CREDENTIALS, 'Email o contraseña incorrectos', 401);
     }
 
     if (!user.is_active) {
-      return res.status(401).json({
-        error: 'Cuenta inactiva',
-        message: 'Tu cuenta ha sido desactivada'
-      });
+      return sendError(res, MESSAGES.ACCOUNT_INACTIVE, 'Tu cuenta ha sido desactivada', 401);
     }
 
     // Verificar contraseña
     const isValidPassword = await authUtils.verifyPassword(password, user.password_hash);
     if (!isValidPassword) {
-      return res.status(401).json({
-        error: 'Credenciales inválidas',
-        message: 'Email o contraseña incorrectos'
-      });
+      return sendError(res, MESSAGES.INVALID_CREDENTIALS, 'Email o contraseña incorrectos', 401);
     }
 
     // Actualizar último login
@@ -172,14 +144,13 @@ router.post('/login', async (req, res, next) => {
         id: uuidv4(),
         user_id: user.id,
         token: refreshToken,
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + TOKENS.REFRESH_TOKEN_EXPIRY_MS).toISOString(),
         created_at: new Date().toISOString()
       });
 
     logger.info(`Usuario logueado: ${email}`);
 
-    res.json({
-      message: 'Login exitoso',
+    return sendSuccess(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -189,11 +160,8 @@ router.post('/login', async (req, res, next) => {
         organizationId: user.organization_id,
         lastLogin: user.last_login_at
       },
-      tokens: {
-        accessToken,
-        refreshToken
-      }
-    });
+      tokens: { accessToken, refreshToken }
+    }, 'Login exitoso');
 
   } catch (error) {
     next(error);
@@ -201,15 +169,9 @@ router.post('/login', async (req, res, next) => {
 });
 
 // Refresh token
-router.post('/refresh', async (req, res, next) => {
+router.post('/refresh', validate(refreshTokenSchema), async (req, res, next) => {
   try {
-    const { error, value } = refreshTokenSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
-    const { refreshToken } = value;
+    const { refreshToken } = req.body;
 
     // Verificar refresh token
     const decoded = authUtils.verifyToken(refreshToken, true);
@@ -223,24 +185,17 @@ router.post('/refresh', async (req, res, next) => {
       .single();
 
     if (tokenError || !tokenData) {
-      return res.status(401).json({
-        error: 'Refresh token inválido',
-        message: 'El refresh token no es válido'
-      });
+      return sendError(res, 'Refresh token inválido', 'El refresh token no es válido', 401);
     }
 
     // Verificar que no haya expirado
     if (new Date(tokenData.expires_at) < new Date()) {
-      // Eliminar token expirado
       await db.getClient()
         .from('refresh_tokens')
         .delete()
         .eq('id', tokenData.id);
 
-      return res.status(401).json({
-        error: 'Refresh token expirado',
-        message: 'El refresh token ha expirado'
-      });
+      return sendError(res, 'Refresh token expirado', 'El refresh token ha expirado', 401);
     }
 
     // Obtener datos del usuario
@@ -251,10 +206,7 @@ router.post('/refresh', async (req, res, next) => {
       .single();
 
     if (userError || !user || !user.is_active) {
-      return res.status(401).json({
-        error: 'Usuario inválido',
-        message: 'El usuario no existe o está inactivo'
-      });
+      return sendError(res, 'Usuario inválido', 'El usuario no existe o está inactivo', 401);
     }
 
     // Generar nuevo access token
@@ -267,13 +219,12 @@ router.post('/refresh', async (req, res, next) => {
 
     const newAccessToken = authUtils.generateAccessToken(tokenPayload);
 
-    res.json({
-      message: 'Token renovado exitosamente',
+    return sendSuccess(res, {
       tokens: {
         accessToken: newAccessToken,
-        refreshToken // Mantener el mismo refresh token
+        refreshToken
       }
-    });
+    }, 'Token renovado exitosamente');
 
   } catch (error) {
     next(error);
@@ -286,7 +237,6 @@ router.post('/logout', authenticateToken, async (req, res, next) => {
     const refreshToken = req.body.refreshToken;
 
     if (refreshToken) {
-      // Eliminar refresh token de la base de datos
       await db.getClient()
         .from('refresh_tokens')
         .delete()
@@ -294,9 +244,7 @@ router.post('/logout', authenticateToken, async (req, res, next) => {
         .eq('user_id', req.user.id);
     }
 
-    res.json({
-      message: 'Logout exitoso'
-    });
+    return sendSuccess(res, {}, 'Logout exitoso');
 
   } catch (error) {
     next(error);
@@ -304,15 +252,9 @@ router.post('/logout', authenticateToken, async (req, res, next) => {
 });
 
 // Cambiar contraseña
-router.post('/change-password', authenticateToken, async (req, res, next) => {
+router.post('/change-password', authenticateToken, validate(changePasswordSchema), async (req, res, next) => {
   try {
-    const { error, value } = changePasswordSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
-    const { currentPassword, newPassword } = value;
+    const { currentPassword, newPassword } = req.body;
 
     // Obtener contraseña actual del usuario
     const { data: user, error: userError } = await db.getClient()
@@ -322,19 +264,13 @@ router.post('/change-password', authenticateToken, async (req, res, next) => {
       .single();
 
     if (userError || !user) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se pudo encontrar el usuario'
-      });
+      return sendNotFound(res, 'Usuario');
     }
 
     // Verificar contraseña actual
     const isCurrentValid = await authUtils.verifyPassword(currentPassword, user.password_hash);
     if (!isCurrentValid) {
-      return res.status(400).json({
-        error: 'Contraseña incorrecta',
-        message: 'La contraseña actual es incorrecta'
-      });
+      return sendError(res, 'Contraseña incorrecta', 'La contraseña actual es incorrecta', 400);
     }
 
     // Hash de la nueva contraseña
@@ -350,17 +286,12 @@ router.post('/change-password', authenticateToken, async (req, res, next) => {
       .eq('id', req.user.id);
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error actualizando contraseña',
-        message: 'No se pudo actualizar la contraseña'
-      });
+      return sendError(res, 'Error actualizando contraseña', 'No se pudo actualizar la contraseña', 500);
     }
 
     logger.info(`Contraseña cambiada para usuario: ${req.user.email}`);
 
-    res.json({
-      message: 'Contraseña actualizada exitosamente'
-    });
+    return sendSuccess(res, {}, 'Contraseña actualizada exitosamente');
 
   } catch (error) {
     next(error);
@@ -392,19 +323,16 @@ router.get('/profile', authenticateToken, async (req, res, next) => {
         email_verified,
         last_login_at,
         created_at,
-        organizations(id, name, type)
+        organizations(id, name)
       `)
       .eq('id', req.user.id)
       .single();
 
     if (userError || !user) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se pudo encontrar el usuario'
-      });
+      return sendNotFound(res, 'Usuario');
     }
 
-    res.json({
+    return sendSuccess(res, {
       user: {
         id: user.id,
         email: user.email,

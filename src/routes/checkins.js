@@ -4,39 +4,29 @@ const db = require('../config/database');
 const logger = require('../utils/logger');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { checkinSchema, checkoutSchema } = require('../validators/schemas');
+const { canUserAccessLocation, canUserAccessCheckin, validateGPSProximity } = require('../utils/permissions');
 const { v4: uuidv4 } = require('uuid');
+const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict, sendForbidden, sendPaginated } = require('../utils/responseHelpers');
+const { validate, validatePagination } = require('../middleware/validation');
+const { CHECKIN_METHODS, GPS } = require('../utils/constants');
 
 // Check-in de empleado
-router.post('/checkin', authenticateToken, async (req, res, next) => {
+router.post('/checkin', authenticateToken, validate(checkinSchema), async (req, res, next) => {
   try {
-    const { error, value } = checkinSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
     const { 
       locationId, 
       checkInMethod,
       coordinates,
       notes
-    } = value;
+    } = req.body;
 
-    // Verificar que el empleado puede trabajar en ese local
-    const canWork = await db.getClient()
-      .rpc('can_employee_work_at_location', { 
-        p_user_id: req.user.id, 
-        p_location_id: locationId 
-      });
-
-    if (!canWork.data) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes asignación activa para trabajar en este local'
-      });
+    // Verificar que el empleado tiene acceso al local
+    const hasAccess = await canUserAccessLocation(req.user, locationId);
+    if (!hasAccess) {
+      return sendForbidden(res, 'No tienes asignación activa para trabajar en este local');
     }
 
-    // Verificar que no hay un check-in activo (sin check-out)
+    // Verificar que no hay un check-in activo
     const { data: activeCheckin } = await db.getClient()
       .from('employee_checkins')
       .select('id, location_id')
@@ -47,14 +37,28 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
       .single();
 
     if (activeCheckin) {
-      return res.status(409).json({
-        error: 'Check-in activo',
-        message: 'Ya tienes un check-in activo. Debes hacer check-out primero',
+      return sendConflict(res, 'Ya tienes un check-in activo. Debes hacer check-out primero', {
         activeCheckin: {
           id: activeCheckin.id,
           locationId: activeCheckin.location_id
         }
       });
+    }
+
+    // Validar GPS
+    if (checkInMethod === CHECKIN_METHODS.GPS && !coordinates) {
+      return sendError(res, 'Coordenadas requeridas', 'Se requieren coordenadas GPS para el método de check-in GPS', 400);
+    }
+    
+    if (coordinates) {
+      const gpsValidation = await validateGPSProximity(coordinates, locationId);
+      
+      if (!gpsValidation.valid) {
+        return sendError(res, 'Ubicación inválida', gpsValidation.message, 400, {
+          distance: gpsValidation.distance,
+          maxDistance: GPS.TOLERANCE_METERS
+        });
+      }
     }
 
     // Obtener la asignación activa para este local
@@ -64,8 +68,7 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
       .eq('user_id', req.user.id)
       .eq('location_id', locationId)
       .eq('is_active', true)
-      .gte('start_date', new Date().toISOString().split('T')[0])
-      .or(`end_date.is.null,end_date.gte.${new Date().toISOString().split('T')[0]}`)
+      .lte('start_date', new Date().toISOString().split('T')[0])
       .single();
 
     // Crear check-in
@@ -98,16 +101,12 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
 
     if (checkinError) {
       logger.error('Error en check-in:', checkinError);
-      return res.status(500).json({
-        error: 'Error en check-in',
-        message: 'No se pudo registrar el check-in'
-      });
+      return sendError(res, 'Error en check-in', 'No se pudo registrar el check-in', 500);
     }
 
     logger.info(`Check-in registrado: ${req.user.email} en ${checkin.locations.name}`);
 
-    res.status(201).json({
-      message: 'Check-in registrado exitosamente',
+    return sendCreated(res, {
       checkin: {
         id: checkin.id,
         userId: checkin.user_id,
@@ -121,7 +120,7 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
         } : null,
         notes: checkin.notes
       }
-    });
+    }, 'Check-in registrado exitosamente');
 
   } catch (error) {
     next(error);
@@ -129,19 +128,13 @@ router.post('/checkin', authenticateToken, async (req, res, next) => {
 });
 
 // Check-out de empleado
-router.post('/checkout', authenticateToken, async (req, res, next) => {
+router.post('/checkout', authenticateToken, validate(checkoutSchema), async (req, res, next) => {
   try {
-    const { error, value } = checkoutSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
     const { 
       checkinId,
       breakDuration,
       notes
-    } = value;
+    } = req.body;
 
     // Buscar el check-in activo del usuario
     let checkinQuery = db.getClient()
@@ -160,10 +153,7 @@ router.post('/checkout', authenticateToken, async (req, res, next) => {
       .single();
 
     if (checkinError || !activeCheckin) {
-      return res.status(404).json({
-        error: 'Check-in no encontrado',
-        message: 'No tienes un check-in activo o el ID especificado no es válido'
-      });
+      return sendNotFound(res, 'Check-in activo');
     }
 
     const checkOutTime = new Date().toISOString();
@@ -196,16 +186,12 @@ router.post('/checkout', authenticateToken, async (req, res, next) => {
 
     if (updateError) {
       logger.error('Error en check-out:', updateError);
-      return res.status(500).json({
-        error: 'Error en check-out',
-        message: 'No se pudo registrar el check-out'
-      });
+      return sendError(res, 'Error en check-out', 'No se pudo registrar el check-out', 500);
     }
 
     logger.info(`Check-out registrado: ${req.user.email} en ${checkin.locations.name}`);
 
-    res.json({
-      message: 'Check-out registrado exitosamente',
+    return sendSuccess(res, {
       checkin: {
         id: checkin.id,
         userId: checkin.user_id,
@@ -217,7 +203,7 @@ router.post('/checkout', authenticateToken, async (req, res, next) => {
         breakDuration: checkin.break_duration,
         notes: checkin.notes
       }
-    });
+    }, 'Check-out registrado exitosamente');
 
   } catch (error) {
     next(error);
@@ -245,18 +231,16 @@ router.get('/status', authenticateToken, async (req, res, next) => {
       .single();
 
     if (error || !activeCheckin) {
-      return res.json({
-        isCheckedIn: false,
-        message: 'No tienes check-in activo'
-      });
+      return sendSuccess(res, {
+        isCheckedIn: false
+      }, 'No tienes check-in activo');
     }
 
-    // Calcular tiempo trabajado hasta ahora
     const checkInTime = new Date(activeCheckin.check_in_time);
     const currentTime = new Date();
     const hoursWorked = Math.round((currentTime - checkInTime) / (1000 * 60 * 60) * 100) / 100;
 
-    res.json({
+    return sendSuccess(res, {
       isCheckedIn: true,
       checkin: {
         id: activeCheckin.id,
@@ -275,10 +259,10 @@ router.get('/status', authenticateToken, async (req, res, next) => {
 });
 
 // Listar check-ins (historial)
-router.get('/', authenticateToken, async (req, res, next) => {
+router.get('/', authenticateToken, validatePagination, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50;
     const userId = req.query.userId;
     const locationId = req.query.locationId;
     const date = req.query.date;
@@ -349,14 +333,11 @@ router.get('/', authenticateToken, async (req, res, next) => {
       .range(offset, offset + limit - 1);
 
     if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo check-ins',
-        message: 'No se pudieron obtener los registros'
-      });
+      return sendError(res, 'Error obteniendo check-ins', 'No se pudieron obtener los registros', 500);
     }
 
-    res.json({
-      checkins: checkins.map(checkin => {
+    return sendPaginated(res,
+      checkins.map(checkin => {
         let hoursWorked = null;
         if (checkin.check_out_time) {
           const checkIn = new Date(checkin.check_in_time);
@@ -379,13 +360,11 @@ router.get('/', authenticateToken, async (req, res, next) => {
           createdAt: checkin.created_at
         };
       }),
-      pagination: {
-        page,
-        limit,
-        total: count,
-        pages: Math.ceil(count / limit)
-      }
-    });
+      count,
+      page,
+      limit,
+      'checkins'
+    );
 
   } catch (error) {
     next(error);
@@ -445,22 +424,17 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     const { data: checkin, error } = await query.single();
 
     if (error || !checkin) {
-      return res.status(404).json({
-        error: 'Check-in no encontrado',
-        message: 'No se pudo encontrar el check-in o no tienes permisos'
-      });
+      return sendNotFound(res, 'Check-in');
     }
 
-    // Calcular horas trabajadas si hay check-out
     let hoursWorked = null;
     if (checkin.check_out_time) {
       const checkInTime = new Date(checkin.check_in_time);
       const checkOutTime = new Date(checkin.check_out_time);
-      const diffMs = checkOutTime - checkInTime;
-      hoursWorked = (diffMs / (1000 * 60 * 60)).toFixed(2);
+      hoursWorked = Math.round((checkOutTime - checkInTime) / (1000 * 60 * 60) * 100) / 100;
     }
 
-    res.json({
+    return sendSuccess(res, {
       checkin: {
         id: checkin.id,
         userId: checkin.user_id,
@@ -488,42 +462,33 @@ router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee
     const { checkinId } = req.params;
     const { checkInTime, checkOutTime, breakDuration, notes, verifiedBy } = req.body;
 
-    // Verificar que el check-in existe y permisos
-    let checkinQuery = db.getClient()
-      .from('employee_checkins')
-      .select('id, location_id, user_id')
-      .eq('id', checkinId);
-
-    if (req.user.role !== 'admin') {
-      if (req.user.role === 'franchisee') {
-        checkinQuery = checkinQuery.in('location_id',
-          db.getClient()
-            .from('locations')
-            .select('id')
-            .in('franchise_id',
-              db.getClient()
-                .from('franchises')
-                .select('id')
-                .eq('organization_id', req.user.organizationId)
-            )
-        );
-      } else if (['manager', 'supervisor'].includes(req.user.role)) {
-        checkinQuery = checkinQuery.in('location_id',
-          db.getClient()
-            .from('locations')
-            .select('id')
-            .eq('manager_id', req.user.id)
-        );
-      }
+    const hasAccess = await canUserAccessCheckin(req.user, checkinId);
+    if (!hasAccess) {
+      return sendForbidden(res, 'No tienes permisos para modificar este check-in');
     }
 
-    const { data: existingCheckin, error: checkinError } = await checkinQuery.single();
+    const { data: existingCheckin, error: checkinError } = await db.getClient()
+      .from('employee_checkins')
+      .select('id, location_id, user_id, check_in_time, check_out_time')
+      .eq('id', checkinId)
+      .single();
 
     if (checkinError || !existingCheckin) {
-      return res.status(404).json({
-        error: 'Check-in no encontrado',
-        message: 'No se pudo encontrar el check-in'
-      });
+      return sendNotFound(res, 'Check-in');
+    }
+
+    let finalCheckInTime = existingCheckin.check_in_time;
+    let finalCheckOutTime = existingCheckin.check_out_time;
+    
+    if (checkInTime) finalCheckInTime = checkInTime;
+    if (checkOutTime) finalCheckOutTime = checkOutTime;
+    
+    if (finalCheckInTime && finalCheckOutTime) {
+      const checkIn = new Date(finalCheckInTime);
+      const checkOut = new Date(finalCheckOutTime);
+      if (checkOut <= checkIn) {
+        return sendError(res, 'Fechas inválidas', 'La hora de check-out debe ser posterior a la de check-in', 400);
+      }
     }
 
     const updateData = {};
@@ -541,13 +506,9 @@ router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee
       .single();
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error actualizando check-in',
-        message: 'No se pudo actualizar el registro'
-      });
+      return sendError(res, 'Error actualizando check-in', 'No se pudo actualizar el registro', 500);
     }
 
-    // Calcular horas trabajadas si existe check-out
     let hoursWorked = null;
     if (checkin.check_out_time) {
       const checkIn = new Date(checkin.check_in_time);
@@ -557,8 +518,7 @@ router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee
 
     logger.info(`Check-in ${checkinId} modificado por ${req.user.email}`);
 
-    res.json({
-      message: 'Check-in actualizado exitosamente',
+    return sendSuccess(res, {
       checkin: {
         id: checkin.id,
         userId: checkin.user_id,
@@ -570,7 +530,7 @@ router.patch('/:checkinId', authenticateToken, requireRole(['admin', 'franchisee
         notes: checkin.notes,
         verifiedBy: checkin.verified_by
       }
-    });
+    }, 'Check-in actualizado exitosamente');
 
   } catch (error) {
     next(error);
@@ -582,27 +542,19 @@ router.get('/location/:locationId/active', authenticateToken, async (req, res, n
   try {
     const { locationId } = req.params;
 
-    // Verificar permisos para ver el local
     const canAccess = await canUserAccessLocation(req.user, locationId);
     if (!canAccess) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes permisos para ver este local'
-      });
+      return sendForbidden(res, 'No tienes permisos para ver este local');
     }
 
-    // Obtener empleados activos usando la función de base de datos
     const { data: employees, error } = await db.getClient()
       .rpc('get_location_active_employees', { p_location_id: locationId });
 
     if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo empleados',
-        message: 'No se pudieron obtener los empleados activos'
-      });
+      return sendError(res, 'Error obteniendo empleados', 'No se pudieron obtener los empleados activos', 500);
     }
 
-    res.json({
+    return sendSuccess(res, {
       locationId,
       activeEmployees: employees || []
     });
@@ -611,47 +563,5 @@ router.get('/location/:locationId/active', authenticateToken, async (req, res, n
     next(error);
   }
 });
-
-// Función auxiliar para verificar acceso a local (reutilizada de locations.js)
-async function canUserAccessLocation(user, locationId) {
-  if (user.role === 'admin') {
-    return true;
-  }
-
-  if (user.role === 'franchisee') {
-    const { data } = await db.getClient()
-      .from('locations')
-      .select('franchise_id')
-      .eq('id', locationId)
-      .in('franchise_id',
-        db.getClient()
-          .from('franchises')
-          .select('id')
-          .eq('organization_id', user.organizationId)
-      )
-      .single();
-    return !!data;
-  }
-
-  if (['manager', 'supervisor', 'employee'].includes(user.role)) {
-    const { data } = await db.getClient()
-      .from('locations')
-      .select('id')
-      .eq('id', locationId)
-      .eq('manager_id', user.id)
-      .single();
-    return !!data;
-  }
-
-  // Empleados pueden ver locales donde están asignados
-  const { data } = await db.getClient()
-    .from('employee_assignments')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('location_id', locationId)
-    .eq('is_active', true)
-    .single();
-  return !!data;
-}
 
 module.exports = router;

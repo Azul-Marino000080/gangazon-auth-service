@@ -4,6 +4,9 @@ const authUtils = require('../utils/auth');
 const db = require('../config/database');
 const logger = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
+const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict, sendForbidden } = require('../utils/responseHelpers');
+const { recordExists } = require('../utils/queryHelpers');
+const { GANGAZON_ORG_ID } = require('../utils/constants');
 
 // Middleware para verificar que el endpoint de emergencia está habilitado
 const checkEmergencyEnabled = (req, res, next) => {
@@ -11,10 +14,7 @@ const checkEmergencyEnabled = (req, res, next) => {
   
   if (!emergencyEnabled) {
     logger.warn('Intento de acceso al endpoint de emergencia deshabilitado');
-    return res.status(403).json({
-      error: 'Endpoint deshabilitado',
-      message: 'El endpoint de emergencia está deshabilitado. Configure ENABLE_EMERGENCY_ENDPOINT=true para habilitarlo.'
-    });
+    return sendForbidden(res, 'El endpoint de emergencia está deshabilitado. Configure ENABLE_EMERGENCY_ENDPOINT=true para habilitarlo.');
   }
   
   next();
@@ -27,10 +27,7 @@ const checkEmergencyToken = (req, res, next) => {
   
   if (!emergencyToken) {
     logger.error('EMERGENCY_ADMIN_TOKEN no está configurado en variables de entorno');
-    return res.status(500).json({
-      error: 'Configuración incorrecta',
-      message: 'El token de emergencia no está configurado en el servidor'
-    });
+    return sendError(res, 'Configuración incorrecta', 'El token de emergencia no está configurado en el servidor', 500);
   }
   
   if (!providedToken || providedToken !== emergencyToken) {
@@ -38,10 +35,7 @@ const checkEmergencyToken = (req, res, next) => {
       ip: req.ip,
       userAgent: req.headers['user-agent']
     });
-    return res.status(401).json({
-      error: 'Token inválido',
-      message: 'Token de emergencia inválido o no proporcionado'
-    });
+    return sendError(res, 'Token inválido', 'Token de emergencia inválido o no proporcionado', 401);
   }
   
   next();
@@ -74,38 +68,26 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
 
     // Validaciones básicas
     if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({
-        error: 'Datos incompletos',
-        message: 'Email, password, firstName y lastName son requeridos'
-      });
+      return sendError(res, 'Datos incompletos', 'Email, password, firstName y lastName son requeridos', 400);
     }
 
     // Validar formato de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        error: 'Email inválido',
-        message: 'El formato del email no es válido'
-      });
+      return sendError(res, 'Email inválido', 'El formato del email no es válido', 400);
     }
 
-    // Validar contraseña (mínimo 8 caracteres, mayúscula, minúscula, número y carácter especial)
+    // Validar contraseña
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])/;
     if (password.length < 8 || !passwordRegex.test(password)) {
-      return res.status(400).json({
-        error: 'Contraseña débil',
-        message: 'La contraseña debe tener al menos 8 caracteres, incluir mayúscula, minúscula, número y carácter especial'
-      });
+      return sendError(res, 'Contraseña débil', 'La contraseña debe tener al menos 8 caracteres, incluir mayúscula, minúscula, número y carácter especial', 400);
     }
 
-    // Validar rol (solo roles administrativos permitidos)
+    // Validar rol
     const allowedRoles = ['admin', 'franchisee'];
     const selectedRole = role || 'admin';
     if (!allowedRoles.includes(selectedRole)) {
-      return res.status(400).json({
-        error: 'Rol inválido',
-        message: `Solo se permiten roles administrativos: ${allowedRoles.join(', ')}`
-      });
+      return sendError(res, 'Rol inválido', `Solo se permiten roles administrativos: ${allowedRoles.join(', ')}`, 400);
     }
 
     // Verificar si el usuario ya existe
@@ -116,7 +98,6 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
       .single();
 
     if (existingUser) {
-      // Si existe pero está inactivo, podemos reactivarlo
       if (!existingUser.is_active) {
         const hashedPassword = await authUtils.hashPassword(password);
         
@@ -135,45 +116,30 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
 
         if (updateError) {
           logger.error('Error reactivando usuario:', updateError);
-          return res.status(500).json({
-            error: 'Error reactivando usuario',
-            message: 'No se pudo reactivar el usuario existente'
-          });
+          return sendError(res, 'Error reactivando usuario', 'No se pudo reactivar el usuario existente', 500);
         }
 
         logger.warn(`Usuario de emergencia reactivado: ${email} por IP: ${req.ip}`);
 
-        return res.status(200).json({
-          message: 'Usuario existente reactivado exitosamente',
+        return sendSuccess(res, {
           user: {
             id: existingUser.id,
             email: email,
             role: selectedRole,
             reactivated: true
           }
-        });
+        }, 'Usuario existente reactivado exitosamente');
       } else {
-        return res.status(409).json({
-          error: 'Usuario ya existe',
-          message: 'Ya existe un usuario activo con este email'
-        });
+        return sendConflict(res, 'Ya existe un usuario activo con este email');
       }
     }
 
     // Si se especifica organizationId, verificar que existe
     let finalOrgId = organizationId;
     if (organizationId) {
-      const { data: org } = await db.getClient()
-        .from('organizations')
-        .select('id')
-        .eq('id', organizationId)
-        .single();
-
-      if (!org) {
-        return res.status(404).json({
-          error: 'Organización no encontrada',
-          message: 'La organización especificada no existe'
-        });
+      const orgExists = await recordExists('organizations', { id: organizationId });
+      if (!orgExists) {
+        return sendNotFound(res, 'Organización');
       }
     } else {
       // Buscar o crear organización Gangazon
@@ -184,11 +150,10 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
         .single();
 
       if (!sysOrg) {
-        // Crear organización Gangazon si no existe
         const { data: newOrg } = await db.getClient()
           .from('organizations')
           .insert({
-            id: '00000000-0000-0000-0000-000000000001',
+            id: GANGAZON_ORG_ID,
             name: 'Gangazon',
             description: 'Franquicia matriz de Gangazon',
             is_active: true,
@@ -197,7 +162,7 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
           .select('id')
           .single();
         
-        finalOrgId = newOrg ? newOrg.id : '00000000-0000-0000-0000-000000000001';
+        finalOrgId = newOrg ? newOrg.id : GANGAZON_ORG_ID;
       } else {
         finalOrgId = sysOrg.id;
       }
@@ -226,16 +191,12 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
 
     if (userError) {
       logger.error('Error creando usuario de emergencia:', userError);
-      return res.status(500).json({
-        error: 'Error creando usuario',
-        message: 'No se pudo crear el usuario administrador'
-      });
+      return sendError(res, 'Error creando usuario', 'No se pudo crear el usuario administrador', 500);
     }
 
     logger.warn(`Usuario de emergencia creado: ${email} con rol ${selectedRole} desde IP: ${req.ip}`);
 
-    res.status(201).json({
-      message: 'Usuario administrador creado exitosamente',
+    return sendCreated(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -245,27 +206,23 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
         organizationId: user.organization_id
       },
       warning: 'IMPORTANTE: Desactive este endpoint cambiando ENABLE_EMERGENCY_ENDPOINT=false en producción'
-    });
+    }, 'Usuario administrador creado exitosamente');
 
   } catch (error) {
     next(error);
   }
 });
 
-/**
- * Endpoint para verificar el estado del endpoint de emergencia
- */
 router.get('/status', (req, res) => {
   const emergencyEnabled = process.env.ENABLE_EMERGENCY_ENDPOINT === 'true';
   const hasToken = !!process.env.EMERGENCY_ADMIN_TOKEN;
   
-  res.json({
+  return sendSuccess(res, {
     enabled: emergencyEnabled,
-    tokenConfigured: hasToken,
-    message: emergencyEnabled 
+    tokenConfigured: hasToken
+  }, emergencyEnabled 
       ? 'Endpoint de emergencia HABILITADO - Desactive en producción' 
-      : 'Endpoint de emergencia deshabilitado'
-  });
+      : 'Endpoint de emergencia deshabilitado');
 });
 
 module.exports = router;

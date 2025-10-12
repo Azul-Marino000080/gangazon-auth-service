@@ -5,16 +5,14 @@ const logger = require('../utils/logger');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createFranchiseSchema, updateFranchiseSchema } = require('../validators/schemas');
 const { v4: uuidv4 } = require('uuid');
+const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict, sendForbidden, sendPaginated } = require('../utils/responseHelpers');
+const { validate, validatePagination } = require('../middleware/validation');
+const { recordExists, countRecords } = require('../utils/queryHelpers');
+const { FRANCHISE_STATUS } = require('../utils/constants');
 
 // Crear franquicia (solo casa matriz)
-router.post('/', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+router.post('/', authenticateToken, requireRole(['admin']), validate(createFranchiseSchema), async (req, res, next) => {
   try {
-    const { error, value } = createFranchiseSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
     const { 
       name, 
       franchiseeName, 
@@ -25,38 +23,20 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res, nex
       maxLocations,
       maxEmployees,
       billingTier
-    } = value;
+    } = req.body;
 
-    // Usar el organizationId del usuario autenticado
     const organizationId = req.user.organizationId;
 
     // Verificar que la organización existe
-    const { data: organization, error: orgError } = await db.getClient()
-      .from('organizations')
-      .select('id')
-      .eq('id', organizationId)
-      .single();
-
-    if (orgError || !organization) {
-      return res.status(404).json({
-        error: 'Organización no encontrada',
-        message: 'La organización especificada no existe'
-      });
+    const orgExists = await recordExists('organizations', { id: organizationId });
+    if (!orgExists) {
+      return sendNotFound(res, 'Organización');
     }
 
-    // Verificar que no existe una franquicia con el mismo nombre en la organización
-    const { data: existingFranchise } = await db.getClient()
-      .from('franchises')
-      .select('id')
-      .eq('organization_id', organizationId)
-      .eq('name', name)
-      .single();
-
-    if (existingFranchise) {
-      return res.status(409).json({
-        error: 'Franquicia ya existe',
-        message: 'Ya existe una franquicia con este nombre en la organización'
-      });
+    // Verificar que no existe una franquicia con el mismo nombre
+    const franchiseExists = await recordExists('franchises', { organization_id: organizationId, name });
+    if (franchiseExists) {
+      return sendConflict(res, 'Ya existe una franquicia con este nombre en la organización');
     }
 
     // Crear franquicia
@@ -82,16 +62,12 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res, nex
 
     if (franchiseError) {
       logger.error('Error creando franquicia:', franchiseError);
-      return res.status(500).json({
-        error: 'Error creando franquicia',
-        message: 'No se pudo crear la franquicia'
-      });
+      return sendError(res, 'Error creando franquicia', 'No se pudo crear la franquicia', 500);
     }
 
     logger.info(`Franquicia creada: ${name} por ${req.user.email}`);
 
-    res.status(201).json({
-      message: 'Franquicia creada exitosamente',
+    return sendCreated(res, {
       franchise: {
         id: franchise.id,
         organizationId: franchise.organization_id,
@@ -107,7 +83,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res, nex
         status: franchise.status,
         createdAt: franchise.created_at
       }
-    });
+    }, 'Franquicia creada exitosamente');
 
   } catch (error) {
     next(error);
@@ -115,13 +91,12 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res, nex
 });
 
 // Listar franquicias
-router.get('/', authenticateToken, async (req, res, next) => {
+router.get('/', authenticateToken, validatePagination, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50;
     const search = req.query.search || '';
     const status = req.query.status || '';
-    const organizationId = req.query.organizationId;
 
     const offset = (page - 1) * limit;
 
@@ -147,17 +122,11 @@ router.get('/', authenticateToken, async (req, res, next) => {
 
     // Filtros según rol del usuario
     if (req.user.role === 'admin') {
-      // Admin puede ver todas las franquicias de su organización
       query = query.eq('organization_id', req.user.organizationId);
     } else if (req.user.role === 'franchisee') {
-      // Franquiciados solo pueden ver su propia franquicia
       query = query.eq('organization_id', req.user.organizationId);
     } else {
-      // Otros roles no pueden ver franquicias
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes permisos para ver franquicias'
-      });
+      return sendForbidden(res, 'No tienes permisos para ver franquicias');
     }
 
     // Aplicar filtros
@@ -174,14 +143,11 @@ router.get('/', authenticateToken, async (req, res, next) => {
       .range(offset, offset + limit - 1);
 
     if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo franquicias',
-        message: 'No se pudieron obtener las franquicias'
-      });
+      return sendError(res, 'Error obteniendo franquicias', 'No se pudieron obtener las franquicias', 500);
     }
 
-    res.json({
-      franchises: franchises.map(franchise => ({
+    return sendPaginated(res,
+      franchises.map(franchise => ({
         id: franchise.id,
         organizationId: franchise.organization_id,
         organization: franchise.organizations,
@@ -198,13 +164,11 @@ router.get('/', authenticateToken, async (req, res, next) => {
         createdAt: franchise.created_at,
         updatedAt: franchise.updated_at
       })),
-      pagination: {
-        page,
-        limit,
-        total: count,
-        pages: Math.ceil(count / limit)
-      }
-    });
+      count,
+      page,
+      limit,
+      'franchises'
+    );
 
   } catch (error) {
     next(error);
@@ -247,13 +211,18 @@ router.get('/:franchiseId', authenticateToken, async (req, res, next) => {
     const { data: franchise, error } = await query.single();
 
     if (error || !franchise) {
-      return res.status(404).json({
-        error: 'Franquicia no encontrada',
-        message: 'No se pudo encontrar la franquicia'
-      });
+      return sendNotFound(res, 'Franquicia');
     }
 
     // Obtener estadísticas de la franquicia
+    // Primero obtener locations de la franquicia para contar empleados
+    const { data: franchiseLocations } = await db.getClient()
+      .from('locations')
+      .select('id')
+      .eq('franchise_id', franchiseId);
+    
+    const locationIds = (franchiseLocations || []).map(l => l.id);
+    
     const [
       { count: totalLocations },
       { count: activeLocations },
@@ -261,10 +230,12 @@ router.get('/:franchiseId', authenticateToken, async (req, res, next) => {
     ] = await Promise.all([
       db.getClient().from('locations').select('*', { count: 'exact', head: true }).eq('franchise_id', franchiseId),
       db.getClient().from('locations').select('*', { count: 'exact', head: true }).eq('franchise_id', franchiseId).eq('is_active', true),
-      db.getClient().from('employee_assignments').select('*', { count: 'exact', head: true }).eq('location_id', franchiseId).eq('is_active', true)
+      locationIds.length > 0 
+        ? db.getClient().from('employee_assignments').select('*', { count: 'exact', head: true }).in('location_id', locationIds).eq('is_active', true)
+        : Promise.resolve({ count: 0 })
     ]);
 
-    res.json({
+    return sendSuccess(res, {
       franchise: {
         id: franchise.id,
         organizationId: franchise.organization_id,
@@ -296,17 +267,10 @@ router.get('/:franchiseId', authenticateToken, async (req, res, next) => {
 });
 
 // Actualizar franquicia
-router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee']), async (req, res, next) => {
+router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee']), validate(updateFranchiseSchema), async (req, res, next) => {
   try {
     const { franchiseId } = req.params;
-    const { error, value } = updateFranchiseSchema.validate(req.body);
-    
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
 
-    // Verificar que la franquicia existe y permisos
     let franchiseQuery = db.getClient()
       .from('franchises')
       .select('id, organization_id, franchisee_name')
@@ -319,23 +283,20 @@ router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee
     const { data: existingFranchise, error: franchiseError } = await franchiseQuery.single();
 
     if (franchiseError || !existingFranchise) {
-      return res.status(404).json({
-        error: 'Franquicia no encontrada',
-        message: 'No se pudo encontrar la franquicia'
-      });
+      return sendNotFound(res, 'Franquicia');
     }
 
     const updateData = {};
-    if (value.name) updateData.name = value.name;
-    if (value.franchiseeName) updateData.franchisee_name = value.franchiseeName;
-    if (value.franchiseeEmail) updateData.franchisee_email = value.franchiseeEmail;
-    if (value.franchiseePhone) updateData.franchisee_phone = value.franchiseePhone;
-    if (value.contractEndDate) updateData.contract_end_date = value.contractEndDate;
-    if (value.maxLocations) updateData.max_locations = value.maxLocations;
-    if (value.maxEmployees) updateData.max_employees = value.maxEmployees;
-    if (value.billingTier) updateData.billing_tier = value.billingTier;
-    if (value.status !== undefined) updateData.status = value.status;
-    if (value.settings) updateData.settings = value.settings;
+    if (req.body.name) updateData.name = req.body.name;
+    if (req.body.franchiseeName) updateData.franchisee_name = req.body.franchiseeName;
+    if (req.body.franchiseeEmail) updateData.franchisee_email = req.body.franchiseeEmail;
+    if (req.body.franchiseePhone) updateData.franchisee_phone = req.body.franchiseePhone;
+    if (req.body.contractEndDate) updateData.contract_end_date = req.body.contractEndDate;
+    if (req.body.maxLocations) updateData.max_locations = req.body.maxLocations;
+    if (req.body.maxEmployees) updateData.max_employees = req.body.maxEmployees;
+    if (req.body.billingTier) updateData.billing_tier = req.body.billingTier;
+    if (req.body.status !== undefined) updateData.status = req.body.status;
+    if (req.body.settings) updateData.settings = req.body.settings;
     
     updateData.updated_at = new Date().toISOString();
 
@@ -347,16 +308,12 @@ router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee
       .single();
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error actualizando franquicia',
-        message: 'No se pudo actualizar la franquicia'
-      });
+      return sendError(res, 'Error actualizando franquicia', 'No se pudo actualizar la franquicia', 500);
     }
 
     logger.info(`Franquicia ${franchiseId} actualizada por ${req.user.email}`);
 
-    res.json({
-      message: 'Franquicia actualizada exitosamente',
+    return sendSuccess(res, {
       franchise: {
         id: franchise.id,
         organizationId: franchise.organization_id,
@@ -373,7 +330,7 @@ router.put('/:franchiseId', authenticateToken, requireRole(['admin', 'franchisee
         settings: franchise.settings,
         updatedAt: franchise.updated_at
       }
-    });
+    }, 'Franquicia actualizada exitosamente');
 
   } catch (error) {
     next(error);
@@ -386,14 +343,11 @@ router.patch('/:franchiseId/status', authenticateToken, requireRole(['admin']), 
     const { franchiseId } = req.params;
     const { status } = req.body;
 
-    if (!['active', 'suspended', 'terminated'].includes(status)) {
-      return res.status(400).json({
-        error: 'Estado inválido',
-        message: 'El estado debe ser: active, suspended o terminated'
-      });
+    const validStatuses = Object.values(FRANCHISE_STATUS);
+    if (!validStatuses.includes(status)) {
+      return sendError(res, 'Estado inválido', 'El estado debe ser: active, suspended o terminated', 400);
     }
 
-    // Verificar que la franquicia existe
     const { data: franchise, error: franchiseError } = await db.getClient()
       .from('franchises')
       .select('id, name, status')
@@ -401,13 +355,9 @@ router.patch('/:franchiseId/status', authenticateToken, requireRole(['admin']), 
       .single();
 
     if (franchiseError || !franchise) {
-      return res.status(404).json({
-        error: 'Franquicia no encontrada',
-        message: 'No se pudo encontrar la franquicia'
-      });
+      return sendNotFound(res, 'Franquicia');
     }
 
-    // Actualizar estado
     const { error: updateError } = await db.getClient()
       .from('franchises')
       .update({ 
@@ -417,14 +367,11 @@ router.patch('/:franchiseId/status', authenticateToken, requireRole(['admin']), 
       .eq('id', franchiseId);
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error cambiando estado',
-        message: 'No se pudo cambiar el estado de la franquicia'
-      });
+      return sendError(res, 'Error cambiando estado', 'No se pudo cambiar el estado de la franquicia', 500);
     }
 
     // Si se suspende o termina, también suspender todos los usuarios de la franquicia
-    if (status === 'suspended' || status === 'terminated') {
+    if (status === FRANCHISE_STATUS.SUSPENDED || status === FRANCHISE_STATUS.TERMINATED) {
       await db.getClient()
         .from('users')
         .update({ 
@@ -446,14 +393,13 @@ router.patch('/:franchiseId/status', authenticateToken, requireRole(['admin']), 
 
     logger.info(`Estado de franquicia ${franchise.name} cambiado a ${status} por ${req.user.email}`);
 
-    res.json({
-      message: `Estado de franquicia cambiado a ${status}`,
+    return sendSuccess(res, {
       franchise: {
         id: franchiseId,
         name: franchise.name,
         status
       }
-    });
+    }, `Estado de franquicia cambiado a ${status}`);
 
   } catch (error) {
     next(error);

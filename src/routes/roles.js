@@ -3,78 +3,37 @@ const router = express.Router();
 const db = require('../config/database');
 const logger = require('../utils/logger');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { sendSuccess, sendError, sendNotFound, sendForbidden } = require('../utils/responseHelpers');
+const { ROLES, ROLE_HIERARCHY } = require('../utils/constants');
 
 // Obtener todos los roles disponibles
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
-    const roles = [
-      {
-        name: 'admin',
-        displayName: 'Administrador',
-        description: 'Administrador con acceso total al sistema Gangazon',
-        permissions: ['all_permissions']
-      },
-      {
-        name: 'franchisee',
-        displayName: 'Franquiciado',
-        description: 'Propietario de franquicia con acceso total a sus locales',
-        permissions: ['manage_own_franchise', 'manage_own_locations', 'manage_franchise_users', 'franchise_reports']
-      },
-      {
-        name: 'manager',
-        displayName: 'Gerente de Local',
-        description: 'Gerente del local con permisos de gestión',
-        permissions: ['manage_location', 'manage_location_employees', 'location_reports', 'employee_schedules']
-      },
-      {
-        name: 'supervisor',
-        displayName: 'Supervisor',
-        description: 'Supervisor del local, ayuda en la gestión',
-        permissions: ['supervise_location', 'view_location_reports', 'employee_checkins']
-      },
-      {
-        name: 'employee',
-        displayName: 'Empleado',
-        description: 'Empleado del local con permisos básicos',
-        permissions: ['checkin_checkout', 'view_own_schedule', 'basic_location_access']
-      },
-      {
-        name: 'viewer',
-        displayName: 'Visualizador',
-        description: 'Solo puede ver información, sin permisos de modificación',
-        permissions: ['read_only']
-      }
-    ];
+    const allRoles = Object.values(ROLES);
 
     // Filtrar roles según el usuario
-    let availableRoles = roles;
-    
+    let availableRoles = allRoles;
+    const userRoleLevel = ROLE_HIERARCHY[req.user.role] || 999;
+
     if (req.user.role === 'admin') {
-      // Admin puede ver todos los roles
-      availableRoles = roles;
+      availableRoles = allRoles;
     } else if (req.user.role === 'franchisee') {
-      // Franquiciado puede asignar roles de local
-      availableRoles = roles.filter(role => 
+      availableRoles = allRoles.filter(role => 
         ['manager', 'supervisor', 'employee', 'viewer'].includes(role.name)
       );
     } else if (req.user.role === 'manager') {
-      // Manager puede asignar supervisor y empleados
-      availableRoles = roles.filter(role => 
+      availableRoles = allRoles.filter(role => 
         ['supervisor', 'employee', 'viewer'].includes(role.name)
       );
     } else if (req.user.role === 'supervisor') {
-      // Supervisor puede ver roles básicos
-      availableRoles = roles.filter(role => 
+      availableRoles = allRoles.filter(role => 
         ['employee', 'viewer'].includes(role.name)
       );
     } else {
-      // Employee y viewer solo ven su propio rol
-      availableRoles = roles.filter(role => role.name === req.user.role);
+      availableRoles = allRoles.filter(role => role.name === req.user.role);
     }
 
-    res.json({
-      roles: availableRoles
-    });
+    return sendSuccess(res, { roles: availableRoles });
 
   } catch (error) {
     next(error);
@@ -86,61 +45,13 @@ router.get('/:name', authenticateToken, async (req, res, next) => {
   try {
     const { name } = req.params;
 
-    const rolesData = {
-      admin: {
-        name: 'admin',
-        displayName: 'Administrador',
-        description: 'Administrador con acceso total al sistema Gangazon',
-        permissions: ['all_permissions'],
-        level: 1
-      },
-      franchisee: {
-        name: 'franchisee',
-        displayName: 'Franquiciado',
-        description: 'Propietario de franquicia con acceso total a sus locales',
-        permissions: ['manage_own_franchise', 'manage_own_locations', 'manage_franchise_users', 'franchise_reports'],
-        level: 2
-      },
-      manager: {
-        name: 'manager',
-        displayName: 'Gerente de Local',
-        description: 'Gerente del local con permisos de gestión',
-        permissions: ['manage_location', 'manage_location_employees', 'location_reports', 'employee_schedules'],
-        level: 3
-      },
-      supervisor: {
-        name: 'supervisor',
-        displayName: 'Supervisor',
-        description: 'Supervisor del local, ayuda en la gestión',
-        permissions: ['supervise_location', 'view_location_reports', 'employee_checkins'],
-        level: 4
-      },
-      employee: {
-        name: 'employee',
-        displayName: 'Empleado',
-        description: 'Empleado del local con permisos básicos',
-        permissions: ['checkin_checkout', 'view_own_schedule', 'basic_location_access'],
-        level: 5
-      },
-      viewer: {
-        name: 'viewer',
-        displayName: 'Visualizador',
-        description: 'Solo puede ver información, sin permisos de modificación',
-        permissions: ['read_only'],
-        level: 6
-      }
-    };
-
-    const role = rolesData[name];
+    const role = ROLES[name.toUpperCase()];
 
     if (!role) {
-      return res.status(404).json({
-        error: 'Rol no encontrado',
-        message: `El rol '${name}' no existe en el sistema`
-      });
+      return sendNotFound(res, 'Rol');
     }
 
-    res.json({ role });
+    return sendSuccess(res, { role });
 
   } catch (error) {
     next(error);
@@ -153,85 +64,16 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
     const { roleName } = req.params;
 
     const rolePermissions = {
-      // Roles básicos
-      user: [
-        {
-          resource: 'profile',
-          actions: ['read', 'update'],
-          description: 'Gestionar su propio perfil'
-        }
-      ],
-      
-      // Roles de Casa Matriz
-      franchisor_ceo: [
+      // Roles del sistema Gangazon (simplificados)
+      admin: [
         {
           resource: 'all',
           actions: ['*'],
-          description: 'Acceso completo al sistema',
+          description: 'Acceso completo al sistema Gangazon',
           scope: 'global'
         }
       ],
-      franchisor_admin: [
-        {
-          resource: 'franchises',
-          actions: ['read', 'create', 'update', 'delete'],
-          description: 'Gestionar todas las franquicias',
-          scope: 'global'
-        },
-        {
-          resource: 'locations',
-          actions: ['read', 'create', 'update', 'delete'],
-          description: 'Gestionar todos los locales',
-          scope: 'global'
-        },
-        {
-          resource: 'users',
-          actions: ['read', 'create', 'update', 'delete'],
-          description: 'Gestionar todos los usuarios',
-          scope: 'global'
-        },
-        {
-          resource: 'reports',
-          actions: ['read', 'export'],
-          description: 'Ver todos los reportes del sistema',
-          scope: 'global'
-        }
-      ],
-      franchisor_supervisor: [
-        {
-          resource: 'franchises',
-          actions: ['read'],
-          description: 'Ver todas las franquicias',
-          scope: 'global'
-        },
-        {
-          resource: 'reports',
-          actions: ['read'],
-          description: 'Ver reportes consolidados',
-          scope: 'global'
-        },
-        {
-          resource: 'support',
-          actions: ['provide'],
-          description: 'Dar soporte a franquicias'
-        }
-      ],
-      franchisor_support: [
-        {
-          resource: 'franchises',
-          actions: ['read'],
-          description: 'Ver franquicias para soporte',
-          scope: 'assigned'
-        },
-        {
-          resource: 'support_tickets',
-          actions: ['read', 'update'],
-          description: 'Gestionar tickets de soporte'
-        }
-      ],
-      
-      // Roles de Franquicia
-      franchisee_owner: [
+      franchisee: [
         {
           resource: 'franchise',
           actions: ['read', 'update'],
@@ -257,55 +99,19 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
           scope: 'own_franchise'
         },
         {
+          resource: 'checkins',
+          actions: ['read', 'approve', 'modify'],
+          description: 'Gestionar asistencia de la franquicia',
+          scope: 'own_franchise'
+        },
+        {
           resource: 'reports',
           actions: ['read', 'export'],
           description: 'Ver reportes de su franquicia',
           scope: 'own_franchise'
         }
       ],
-      franchisee_admin: [
-        {
-          resource: 'locations',
-          actions: ['read', 'update'],
-          description: 'Gestionar locales de la franquicia',
-          scope: 'own_franchise'
-        },
-        {
-          resource: 'users',
-          actions: ['read', 'create', 'update'],
-          description: 'Gestionar empleados básicos',
-          scope: 'own_franchise'
-        },
-        {
-          resource: 'assignments',
-          actions: ['read', 'create', 'update', 'delete'],
-          description: 'Gestionar asignaciones de empleados',
-          scope: 'own_franchise'
-        },
-        {
-          resource: 'checkins',
-          actions: ['read', 'approve'],
-          description: 'Supervisar asistencia',
-          scope: 'own_franchise'
-        }
-      ],
-      franchisee_accountant: [
-        {
-          resource: 'reports',
-          actions: ['read', 'export'],
-          description: 'Ver reportes financieros',
-          scope: 'own_franchise'
-        },
-        {
-          resource: 'payroll',
-          actions: ['read', 'process'],
-          description: 'Gestionar nóminas',
-          scope: 'own_franchise'
-        }
-      ],
-      
-      // Roles de Local
-      location_manager: [
+      manager: [
         {
           resource: 'location',
           actions: ['read', 'update'],
@@ -314,8 +120,14 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
         },
         {
           resource: 'users',
-          actions: ['read', 'assign'],
-          description: 'Gestionar empleados del local',
+          actions: ['read'],
+          description: 'Ver empleados del local',
+          scope: 'assigned_locations'
+        },
+        {
+          resource: 'assignments',
+          actions: ['read', 'create', 'update'],
+          description: 'Gestionar asignaciones en el local',
           scope: 'assigned_locations'
         },
         {
@@ -329,9 +141,15 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
           actions: ['read', 'create', 'update'],
           description: 'Gestionar horarios del local',
           scope: 'assigned_locations'
+        },
+        {
+          resource: 'reports',
+          actions: ['read'],
+          description: 'Ver reportes del local',
+          scope: 'assigned_locations'
         }
       ],
-      location_supervisor: [
+      supervisor: [
         {
           resource: 'location',
           actions: ['read'],
@@ -349,9 +167,15 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
           actions: ['read'],
           description: 'Ver empleados del local',
           scope: 'assigned_locations'
+        },
+        {
+          resource: 'schedules',
+          actions: ['read'],
+          description: 'Ver horarios del local',
+          scope: 'assigned_locations'
         }
       ],
-      location_employee: [
+      employee: [
         {
           resource: 'profile',
           actions: ['read', 'update'],
@@ -359,50 +183,64 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
         },
         {
           resource: 'checkins',
-          actions: ['create'],
-          description: 'Realizar check-in/check-out',
-          scope: 'assigned_locations'
+          actions: ['create', 'read'],
+          description: 'Realizar y ver sus propios check-in/check-out',
+          scope: 'self'
         },
         {
           resource: 'schedule',
           actions: ['read'],
-          description: 'Ver su propio horario'
-        }
-      ],
-      location_temp: [
-        {
-          resource: 'checkins',
-          actions: ['create'],
-          description: 'Realizar check-in/check-out',
-          scope: 'assigned_locations'
+          description: 'Ver su propio horario',
+          scope: 'self'
         },
         {
-          resource: 'schedule',
+          resource: 'location',
           actions: ['read'],
-          description: 'Ver horario asignado'
+          description: 'Ver información básica del local asignado',
+          scope: 'assigned_locations'
         }
       ],
-      
-      // Roles legacy
-      admin: [
+      viewer: [
+        {
+          resource: 'profile',
+          actions: ['read', 'update'],
+          description: 'Ver y actualizar su propio perfil'
+        },
+        {
+          resource: 'locations',
+          actions: ['read'],
+          description: 'Ver locales asignados (solo lectura)',
+          scope: 'assigned_locations'
+        },
         {
           resource: 'users',
-          actions: ['read', 'create', 'update', 'deactivate'],
-          description: 'Gestionar usuarios de su organización',
-          scope: 'organization'
+          actions: ['read'],
+          description: 'Ver usuarios de locales asignados (solo lectura)',
+          scope: 'assigned_locations'
         },
         {
-          resource: 'organization',
-          actions: ['read', 'update'],
-          description: 'Gestionar información de su organización'
-        }
-      ],
-      super_admin: [
+          resource: 'checkins',
+          actions: ['read'],
+          description: 'Ver registros de asistencia (solo lectura)',
+          scope: 'assigned_locations'
+        },
         {
-          resource: 'all',
-          actions: ['*'],
-          description: 'Acceso completo al sistema (legacy)',
-          scope: 'global'
+          resource: 'schedules',
+          actions: ['read'],
+          description: 'Ver horarios (solo lectura)',
+          scope: 'assigned_locations'
+        },
+        {
+          resource: 'reports',
+          actions: ['read'],
+          description: 'Ver reportes (solo lectura)',
+          scope: 'assigned_locations'
+        },
+        {
+          resource: 'assignments',
+          actions: ['read'],
+          description: 'Ver asignaciones (solo lectura)',
+          scope: 'assigned_locations'
         }
       ]
     };
@@ -415,17 +253,11 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
     }
 
     // Verificar que el usuario puede ver estos permisos
-    const userRole = req.user.role;
-    const canViewRole = canUserViewRole(userRole, roleName);
-    
-    if (!canViewRole) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes permisos para ver los permisos de este rol'
-      });
+    if (!canUserViewRole(req.user.role, roleName)) {
+      return sendForbidden(res, 'No tienes permisos para ver los permisos de este rol');
     }
 
-    res.json({
+    return sendSuccess(res, {
       role: roleName,
       permissions: rolePermissions[roleName]
     });
@@ -437,42 +269,9 @@ router.get('/:roleName/permissions', authenticateToken, async (req, res, next) =
 
 // Función auxiliar para verificar si un usuario puede ver un rol
 function canUserViewRole(userRole, targetRole) {
-  const roleHierarchy = {
-    // Casa matriz puede ver todos los roles
-    'franchisor_ceo': ['*'],
-    'franchisor_admin': ['*'],
-    'super_admin': ['*'],
-    
-    // Supervisor puede ver roles de franquicia y locales
-    'franchisor_supervisor': [
-      'franchisee_owner', 'franchisee_admin', 'franchisee_accountant',
-      'location_manager', 'location_supervisor', 'location_employee', 'location_temp'
-    ],
-    
-    // Franquicia puede ver roles de local
-    'franchisee_owner': [
-      'franchisee_admin', 'franchisee_accountant',
-      'location_manager', 'location_supervisor', 'location_employee', 'location_temp'
-    ],
-    'franchisee_admin': [
-      'location_manager', 'location_supervisor', 'location_employee', 'location_temp'
-    ],
-    
-    // Local puede ver roles subordinados
-    'location_manager': ['location_supervisor', 'location_employee', 'location_temp'],
-    'location_supervisor': ['location_employee', 'location_temp'],
-    
-    // Roles básicos solo pueden ver su propio rol
-    'location_employee': ['location_employee'],
-    'location_temp': ['location_temp'],
-    'user': ['user'],
-    
-    // Legacy
-    'admin': ['user', 'admin'],
-  };
-
-  const allowedRoles = roleHierarchy[userRole] || [];
-  return allowedRoles.includes('*') || allowedRoles.includes(targetRole) || userRole === targetRole;
+  const userLevel = ROLE_HIERARCHY[userRole] || 999;
+  const targetLevel = ROLE_HIERARCHY[targetRole] || 999;
+  return userRole === 'admin' || userLevel <= targetLevel;
 }
 
 // Verificar si un usuario tiene un permiso específico
@@ -481,10 +280,7 @@ router.post('/check-permission', authenticateToken, async (req, res, next) => {
     const { resource, action, targetUserId, targetOrganizationId } = req.body;
 
     if (!resource || !action) {
-      return res.status(400).json({
-        error: 'Parámetros requeridos',
-        message: 'Se requieren resource y action'
-      });
+      return sendError(res, 'Parámetros requeridos', 'Se requieren resource y action', 400);
     }
 
     let hasPermission = false;
@@ -569,7 +365,7 @@ router.post('/check-permission', authenticateToken, async (req, res, next) => {
       reason = 'Permiso no definido para este rol y recurso';
     }
 
-    res.json({
+    return sendSuccess(res, {
       hasPermission,
       reason,
       user: {
@@ -596,12 +392,8 @@ router.get('/:roleName/users', authenticateToken, requireRole(['admin', 'super_a
     const { roleName } = req.params;
     const organizationId = req.query.organizationId || req.user.organizationId;
 
-    // Verificar permisos
     if (req.user.role !== 'super_admin' && organizationId !== req.user.organizationId) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: 'No tienes permisos para ver usuarios de otras organizaciones'
-      });
+      return sendForbidden(res, 'No tienes permisos para ver usuarios de otras organizaciones');
     }
 
     let query = db.getClient()
@@ -617,13 +409,10 @@ router.get('/:roleName/users', authenticateToken, requireRole(['admin', 'super_a
       .order('created_at', { ascending: false });
 
     if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo usuarios',
-        message: 'No se pudieron obtener los usuarios con este rol'
-      });
+      return sendError(res, 'Error obteniendo usuarios', 'No se pudieron obtener los usuarios con este rol', 500);
     }
 
-    res.json({
+    return sendSuccess(res, {
       role: roleName,
       organizationId,
       users: users.map(user => ({

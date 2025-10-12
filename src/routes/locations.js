@@ -4,6 +4,7 @@ const db = require('../config/database');
 const logger = require('../utils/logger');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createLocationSchema, updateLocationSchema } = require('../validators/schemas');
+const { canUserAccessLocation } = require('../utils/permissions');
 const { v4: uuidv4 } = require('uuid');
 
 // Crear local (franquiciado o casa matriz)
@@ -165,7 +166,7 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async 
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50;
     const search = req.query.search || '';
     const franchiseId = req.query.franchiseId;
     const city = req.query.city || '';
@@ -204,33 +205,44 @@ router.get('/', authenticateToken, async (req, res, next) => {
       }
     } else if (req.user.role === 'franchisee') {
       // Franquiciados solo pueden ver locales de su organización
-      query = query.in('franchise_id', 
-        db.getClient()
-          .from('franchises')
-          .select('id')
-          .eq('organization_id', req.user.organizationId)
-      );
+      // Primero obtener las franquicias del usuario
+      const { data: userFranchises } = await db.getClient()
+        .from('franchises')
+        .select('id')
+        .eq('organization_id', req.user.organizationId);
+      
+      const franchiseIds = (userFranchises || []).map(f => f.id);
+      if (franchiseIds.length > 0) {
+        query = query.in('franchise_id', franchiseIds);
+      } else {
+        // Sin franquicias, no devolver nada
+        return res.json({
+          locations: [],
+          pagination: { page, limit, total: 0, pages: 0 }
+        });
+      }
+      
       if (franchiseId) {
         query = query.eq('franchise_id', franchiseId);
       }
-    } else if (['manager', 'supervisor'].includes(req.user.role)) {
-      // Managers y supervisores solo ven sus locales asignados
-      query = query.in('id',
-        db.getClient()
-          .from('employee_assignments')
-          .select('location_id')
-          .eq('user_id', req.user.id)
-          .eq('is_active', true)
-      );
-    } else {
-      // Empleados ven locales donde están asignados
-      query = query.in('id',
-        db.getClient()
-          .from('employee_assignments')
-          .select('location_id')
-          .eq('user_id', req.user.id)
-          .eq('is_active', true)
-      );
+    } else if (['manager', 'supervisor', 'employee', 'viewer'].includes(req.user.role)) {
+      // Obtener locales asignados al usuario
+      const { data: assignments } = await db.getClient()
+        .from('employee_assignments')
+        .select('location_id')
+        .eq('user_id', req.user.id)
+        .eq('is_active', true);
+      
+      const locationIds = (assignments || []).map(a => a.location_id);
+      if (locationIds.length > 0) {
+        query = query.in('id', locationIds);
+      } else {
+        // Sin asignaciones, no devolver nada
+        return res.json({
+          locations: [],
+          pagination: { page, limit, total: 0, pages: 0 }
+        });
+      }
     }
 
     // Aplicar filtros
@@ -334,7 +346,47 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
     const { id: locationId } = req.params;
 
-    let query = db.getClient()
+    // Verificar permisos según rol primero
+    let canAccess = true;
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'franchisee') {
+        // Verificar que el local pertenece a franquicia de su organización
+        const { data: franchises } = await db.getClient()
+          .from('franchises')
+          .select('id')
+          .eq('organization_id', req.user.organizationId);
+        
+        const franchiseIds = (franchises || []).map(f => f.id);
+        
+        const { data: locationCheck } = await db.getClient()
+          .from('locations')
+          .select('franchise_id')
+          .eq('id', locationId)
+          .single();
+        
+        canAccess = locationCheck && franchiseIds.includes(locationCheck.franchise_id);
+      } else if (['manager', 'supervisor', 'employee', 'viewer'].includes(req.user.role)) {
+        // Verificar asignación activa
+        const { data: assignment } = await db.getClient()
+          .from('employee_assignments')
+          .select('id')
+          .eq('user_id', req.user.id)
+          .eq('location_id', locationId)
+          .eq('is_active', true)
+          .single();
+        
+        canAccess = !!assignment;
+      }
+    }
+    
+    if (!canAccess) {
+      return res.status(403).json({
+        error: 'Acceso denegado',
+        message: 'No tienes permisos para ver este local'
+      });
+    }
+
+    const { data: location, error } = await db.getClient()
       .from('locations')
       .select(`
         id,
@@ -358,40 +410,8 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
         updated_at,
         franchises(name, organization_id, franchisee_name)
       `)
-      .eq('id', locationId);
-
-    // Verificar permisos según rol
-    if (req.user.role !== 'admin') {
-      if (req.user.role === 'franchisee') {
-        // Solo locales de su organización
-        query = query.in('franchise_id',
-          db.getClient()
-            .from('franchises')
-            .select('id')
-            .eq('organization_id', req.user.organizationId)
-        );
-      } else if (['manager', 'supervisor'].includes(req.user.role)) {
-        // Solo sus locales asignados
-        query = query.in('id',
-          db.getClient()
-            .from('employee_assignments')
-            .select('location_id')
-            .eq('user_id', req.user.id)
-            .eq('is_active', true)
-        );
-      } else {
-        // Empleados: solo locales donde está asignado
-        query = query.in('id',
-          db.getClient()
-            .from('employee_assignments')
-            .select('location_id')
-            .eq('user_id', req.user.id)
-            .eq('is_active', true)
-        );
-      }
-    }
-
-    const { data: location, error } = await query.single();
+      .eq('id', locationId)
+      .single();
 
     if (error || !location) {
       return res.status(404).json({
@@ -466,22 +486,46 @@ router.put('/:locationId', authenticateToken, requireRole(['admin', 'franchisee'
       .select('id, franchise_id, name, manager_id')
       .eq('id', locationId);
 
+    // Verificar permisos según rol
     if (req.user.role !== 'admin') {
       if (req.user.role === 'franchisee') {
-        locationQuery = locationQuery.in('franchise_id',
-          db.getClient()
-            .from('franchises')
-            .select('id')
-            .eq('organization_id', req.user.organizationId)
-        );
+        // Verificar que pertenece a su organización
+        const { data: franchises } = await db.getClient()
+          .from('franchises')
+          .select('id')
+          .eq('organization_id', req.user.organizationId);
+        
+        const franchiseIds = (franchises || []).map(f => f.id);
+        
+        const { data: locationCheck } = await db.getClient()
+          .from('locations')
+          .select('franchise_id')
+          .eq('id', locationId)
+          .single();
+        
+        if (!locationCheck || !franchiseIds.includes(locationCheck.franchise_id)) {
+          return res.status(403).json({
+            error: 'Acceso denegado',
+            message: 'No tienes permisos para actualizar este local'
+          });
+        }
       } else if (req.user.role === 'manager') {
-        locationQuery = locationQuery.in('id',
-          db.getClient()
-            .from('employee_assignments')
-            .select('location_id')
-            .eq('user_id', req.user.id)
-            .eq('is_active', true)
-        );
+        // Manager debe tener asignación activa con rol manager
+        const { data: assignment } = await db.getClient()
+          .from('employee_assignments')
+          .select('id, role_at_location')
+          .eq('user_id', req.user.id)
+          .eq('location_id', locationId)
+          .eq('is_active', true)
+          .eq('role_at_location', 'manager')
+          .single();
+        
+        if (!assignment) {
+          return res.status(403).json({
+            error: 'Acceso denegado',
+            message: 'No eres manager de este local'
+          });
+        }
       }
     }
 
@@ -626,48 +670,5 @@ router.delete('/:locationId', authenticateToken, requireRole(['admin', 'franchis
     next(error);
   }
 });
-
-// Función auxiliar para verificar acceso a local
-async function canUserAccessLocation(user, locationId) {
-  if (user.role === 'admin') {
-    return true;
-  }
-
-  if (user.role === 'franchisee') {
-    const { data } = await db.getClient()
-      .from('locations')
-      .select('franchise_id')
-      .eq('id', locationId)
-      .in('franchise_id',
-        db.getClient()
-          .from('franchises')
-          .select('id')
-          .eq('organization_id', user.organizationId)
-      )
-      .single();
-    return !!data;
-  }
-
-  if (['manager', 'supervisor', 'employee'].includes(user.role)) {
-    const { data } = await db.getClient()
-      .from('employee_assignments')
-      .select('id')
-      .eq('location_id', locationId)
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .single();
-    return !!data;
-  }
-
-  // Viewer y otros roles sin acceso específico
-  const { data } = await db.getClient()
-    .from('employee_assignments')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('location_id', locationId)
-    .eq('is_active', true)
-    .single();
-  return !!data;
-}
 
 module.exports = router;

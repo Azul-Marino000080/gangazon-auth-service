@@ -36,13 +36,5 @@ services:
         value: 100
       - key: CORS_ORIGINS
         value: https://localhost:3000,https://gangazon-scanner.vercel.app
-      - key: SESSION_TIMEOUT_HOURS
-        value: 24
-      - key: REFRESH_TOKEN_DAYS
-        value: 30
-      - key: FRANCHISE_MAX_LOCATIONS
-        value: 10
-      - key: FRANCHISE_MAX_EMPLOYEES
-        value: 50
       - key: GPS_TOLERANCE_METERS
         value: 100

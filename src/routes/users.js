@@ -5,65 +5,60 @@ const logger = require('../utils/logger');
 const authUtils = require('../utils/auth');
 const { authenticateToken, requireRole, requireOrgAccess } = require('../middleware/auth');
 const { createUserSchema, updateUserSchema } = require('../validators/schemas');
+const { getGangazonOrganization } = require('../utils/permissions');
 const { v4: uuidv4 } = require('uuid');
+const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict, sendForbidden, sendPaginated } = require('../utils/responseHelpers');
+const { validate, validatePagination } = require('../middleware/validation');
+const { recordExists, getLocationWithFranchise } = require('../utils/queryHelpers');
+const { canManageUser } = require('../utils/accessControl');
 
 // Crear nuevo usuario (ADMIN o FRANCHISEE)
 // Este es el endpoint correcto para crear usuarios en el sistema
 // Requiere franchiseId excepto para rol admin
-router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async (req, res, next) => {
+router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), validate(createUserSchema), async (req, res, next) => {
   try {
-    const { error, value } = createUserSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
-    const { email, password, firstName, lastName, role, franchiseId, phone } = value;
+    const { email, password, firstName, lastName, role, franchiseId, locationId, startDate, phone } = req.body;
 
     // Verificar si el usuario ya existe
-    const { data: existingUser } = await db.getClient()
-      .from('users')
-      .select('id')
-      .eq('email', email)
-      .single();
-
-    if (existingUser) {
-      return res.status(409).json({
-        error: 'Usuario ya existe',
-        message: 'Ya existe un usuario con este email'
-      });
+    const exists = await recordExists('users', { email });
+    if (exists) {
+      return sendConflict(res, 'Ya existe un usuario con este email');
     }
+
+    // Obtener organización Gangazon (única organización)
+    const organizationId = await getGangazonOrganization();
 
     // Si se proporciona franchiseId, verificar que existe
     if (franchiseId) {
-      const { data: franchise, error: franchiseError } = await db.getClient()
-        .from('franchises')
-        .select('id, organization_id')
-        .eq('id', franchiseId)
-        .single();
-
-      if (franchiseError || !franchise) {
-        return res.status(404).json({
-          error: 'Franquicia no encontrada',
-          message: 'La franquicia especificada no existe'
-        });
+      const franchiseExists = await recordExists('franchises', { id: franchiseId });
+      if (!franchiseExists) {
+        return sendNotFound(res, 'Franquicia');
       }
 
       // Si el usuario es franchisee, verificar permisos
       if (req.user.role === 'franchisee') {
-        // Un franchisee solo puede crear usuarios en su propia franquicia
         const { data: userFranchises } = await db.getClient()
           .from('franchises')
           .select('id')
           .eq('franchisee_email', req.user.email);
 
-        const franchiseIds = userFranchises.map(f => f.id);
+        const franchiseIds = (userFranchises || []).map(f => f.id);
         if (!franchiseIds.includes(franchiseId)) {
-          return res.status(403).json({
-            error: 'Acceso denegado',
-            message: 'No tienes permisos para crear usuarios en esta franquicia'
-          });
+          return sendForbidden(res, 'No tienes permisos para crear usuarios en esta franquicia');
         }
+      }
+    }
+
+    // Si se proporciona locationId, verificar que existe y pertenece a la franquicia
+    let locationData = null;
+    if (locationId) {
+      locationData = await getLocationWithFranchise(locationId);
+      if (!locationData) {
+        return sendNotFound(res, 'Local');
+      }
+
+      if (franchiseId && locationData.franchise_id !== franchiseId) {
+        return sendError(res, 'Local inválido', 'El local no pertenece a la franquicia especificada', 400);
       }
     }
 
@@ -79,7 +74,7 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async 
         password_hash: hashedPassword,
         first_name: firstName,
         last_name: lastName,
-        organization_id: req.user.organizationId,
+        organization_id: organizationId,
         role: role || 'employee',
         phone,
         is_active: true,
@@ -91,16 +86,51 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async 
 
     if (userError) {
       logger.error('Error creando usuario:', userError);
-      return res.status(500).json({
-        error: 'Error creando usuario',
-        message: 'No se pudo crear el usuario'
-      });
+      return sendError(res, 'Error creando usuario', 'No se pudo crear el usuario', 500);
+    }
+
+    // Crear asignación automática si se proporcionó locationId
+    let assignment = null;
+    if (locationId && ['manager', 'supervisor', 'employee', 'viewer'].includes(role)) {
+      const { data: newAssignment, error: assignmentError } = await db.getClient()
+        .from('employee_assignments')
+        .insert({
+          id: uuidv4(),
+          user_id: user.id,
+          location_id: locationId,
+          role_at_location: role === 'manager' ? 'manager' : role === 'supervisor' ? 'supervisor' : 'employee',
+          start_date: startDate || new Date().toISOString().split('T')[0],
+          shift_type: 'full_time',
+          assigned_by: req.user.id,
+          is_active: true,
+          created_at: new Date().toISOString()
+        })
+        .select('id, location_id, role_at_location, start_date')
+        .single();
+
+      if (!assignmentError && newAssignment) {
+        assignment = {
+          id: newAssignment.id,
+          locationId: newAssignment.location_id,
+          locationName: locationData?.name,
+          roleAtLocation: newAssignment.role_at_location,
+          startDate: newAssignment.start_date
+        };
+      }
     }
 
     logger.info(`Usuario creado: ${email} por ${req.user.email}`);
 
-    res.status(201).json({
-      message: 'Usuario creado exitosamente',
+    let note = null;
+    if (!assignment) {
+      if (!franchiseId) {
+        note = 'Usuario admin creado sin asignación de franquicia';
+      } else if (!locationId) {
+        note = 'Usuario creado. Asígnalo a un local específico vía POST /api/assignments';
+      }
+    }
+
+    return sendCreated(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -111,9 +141,9 @@ router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), async 
         isActive: user.is_active,
         createdAt: user.created_at
       },
-      franchiseId: franchiseId || null,
-      note: franchiseId ? 'Usuario creado. Recuerda asignarlo a un local específico via POST /api/assignments' : 'Usuario admin creado sin franquicia'
-    });
+      assignment,
+      note
+    }, assignment ? 'Usuario creado y asignado exitosamente' : 'Usuario creado exitosamente');
 
   } catch (error) {
     next(error);
@@ -142,13 +172,10 @@ router.get('/me', authenticateToken, async (req, res, next) => {
       .single();
 
     if (error || !user) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se pudo encontrar el usuario'
-      });
+      return sendNotFound(res, 'Usuario');
     }
 
-    res.json({
+    return sendSuccess(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -170,18 +197,12 @@ router.get('/me', authenticateToken, async (req, res, next) => {
 });
 
 // Actualizar perfil del usuario actual
-router.put('/me', authenticateToken, async (req, res, next) => {
+router.put('/me', authenticateToken, validate(updateUserSchema), async (req, res, next) => {
   try {
-    const { error, value } = updateUserSchema.validate(req.body);
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
-
     const updateData = {};
-    if (value.firstName) updateData.first_name = value.firstName;
-    if (value.lastName) updateData.last_name = value.lastName;
-    if (value.email) updateData.email = value.email;
+    if (req.body.firstName) updateData.first_name = req.body.firstName;
+    if (req.body.lastName) updateData.last_name = req.body.lastName;
+    if (req.body.email) updateData.email = req.body.email;
     
     updateData.updated_at = new Date().toISOString();
 
@@ -193,16 +214,12 @@ router.put('/me', authenticateToken, async (req, res, next) => {
       .single();
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error actualizando usuario',
-        message: 'No se pudo actualizar el usuario'
-      });
+      return sendError(res, 'Error actualizando usuario', 'No se pudo actualizar el usuario', 500);
     }
 
     logger.info(`Usuario actualizado: ${user.email}`);
 
-    res.json({
-      message: 'Perfil actualizado exitosamente',
+    return sendSuccess(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -211,7 +228,7 @@ router.put('/me', authenticateToken, async (req, res, next) => {
         role: user.role,
         organizationId: user.organization_id
       }
-    });
+    }, 'Perfil actualizado exitosamente');
 
   } catch (error) {
     next(error);
@@ -219,13 +236,12 @@ router.put('/me', authenticateToken, async (req, res, next) => {
 });
 
 // Listar usuarios (solo para admins)
-router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+router.get('/', authenticateToken, requireRole(['admin']), validatePagination, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50;
     const search = req.query.search || '';
     const role = req.query.role || '';
-    const organizationId = req.query.organizationId || req.user.organizationId;
 
     const offset = (page - 1) * limit;
 
@@ -245,7 +261,6 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
         organizations(name)
       `, { count: 'exact' });
 
-    // Filtros - admin siempre ve solo su organización
     query = query.eq('organization_id', req.user.organizationId);
 
     if (search) {
@@ -261,14 +276,11 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
       .range(offset, offset + limit - 1);
 
     if (error) {
-      return res.status(500).json({
-        error: 'Error obteniendo usuarios',
-        message: 'No se pudieron obtener los usuarios'
-      });
+      return sendError(res, 'Error obteniendo usuarios', 'No se pudieron obtener los usuarios', 500);
     }
 
-    res.json({
-      users: users.map(user => ({
+    return sendPaginated(res, 
+      users.map(user => ({
         id: user.id,
         email: user.email,
         firstName: user.first_name,
@@ -281,13 +293,11 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
         createdAt: user.created_at,
         lastLogin: user.last_login_at
       })),
-      pagination: {
-        page,
-        limit,
-        total: count,
-        pages: Math.ceil(count / limit)
-      }
-    });
+      count,
+      page,
+      limit,
+      'users'
+    );
 
   } catch (error) {
     next(error);
@@ -299,7 +309,7 @@ router.get('/:userId', authenticateToken, requireRole(['admin']), requireOrgAcce
   try {
     const { userId } = req.params;
 
-    let query = db.getClient()
+    const { data: user, error } = await db.getClient()
       .from('users')
       .select(`
         id,
@@ -314,21 +324,15 @@ router.get('/:userId', authenticateToken, requireRole(['admin']), requireOrgAcce
         last_login_at,
         organizations(name, description)
       `)
-      .eq('id', userId);
-
-    // Admin solo puede ver usuarios de su organización
-    query = query.eq('organization_id', req.user.organizationId);
-
-    const { data: user, error } = await query.single();
+      .eq('id', userId)
+      .eq('organization_id', req.user.organizationId)
+      .single();
 
     if (error || !user) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se pudo encontrar el usuario'
-      });
+      return sendNotFound(res, 'Usuario');
     }
 
-    res.json({
+    return sendSuccess(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -350,49 +354,34 @@ router.get('/:userId', authenticateToken, requireRole(['admin']), requireOrgAcce
 });
 
 // Actualizar usuario (solo para admins)
-router.put('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, async (req, res, next) => {
+router.put('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, validate(updateUserSchema), async (req, res, next) => {
   try {
     const { userId } = req.params;
-    const { error, value } = updateUserSchema.validate(req.body);
-    
-    if (error) {
-      error.isJoi = true;
-      return next(error);
-    }
 
-    // Verificar que el usuario existe y pertenece a la organización correcta
-    let userQuery = db.getClient()
+    const { data: existingUser, error: userError } = await db.getClient()
       .from('users')
       .select('id, organization_id, role')
       .eq('id', userId)
-      .eq('organization_id', req.user.organizationId);
-
-    const { data: existingUser, error: userError } = await userQuery.single();
+      .eq('organization_id', req.user.organizationId)
+      .single();
 
     if (userError || !existingUser) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se pudo encontrar el usuario'
-      });
+      return sendNotFound(res, 'Usuario');
     }
 
     // Validaciones de permisos para cambio de rol
-    if (value.role && value.role !== existingUser.role) {
-      // Admin no puede modificar otros admins
-      if (existingUser.role === 'admin') {
-        return res.status(403).json({
-          error: 'Permisos insuficientes',
-          message: 'No puedes modificar usuarios con rol de admin'
-        });
+    if (req.body.role && req.body.role !== existingUser.role) {
+      if (!canManageUser(req.user, existingUser)) {
+        return sendForbidden(res, 'No puedes modificar usuarios con rol de admin');
       }
     }
 
     const updateData = {};
-    if (value.firstName) updateData.first_name = value.firstName;
-    if (value.lastName) updateData.last_name = value.lastName;
-    if (value.email) updateData.email = value.email;
-    if (value.role) updateData.role = value.role;
-    if (value.isActive !== undefined) updateData.is_active = value.isActive;
+    if (req.body.firstName) updateData.first_name = req.body.firstName;
+    if (req.body.lastName) updateData.last_name = req.body.lastName;
+    if (req.body.email) updateData.email = req.body.email;
+    if (req.body.role) updateData.role = req.body.role;
+    if (req.body.isActive !== undefined) updateData.is_active = req.body.isActive;
     
     updateData.updated_at = new Date().toISOString();
 
@@ -404,16 +393,12 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), requireOrgAcce
       .single();
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error actualizando usuario',
-        message: 'No se pudo actualizar el usuario'
-      });
+      return sendError(res, 'Error actualizando usuario', 'No se pudo actualizar el usuario', 500);
     }
 
     logger.info(`Usuario ${userId} actualizado por ${req.user.email}`);
 
-    res.json({
-      message: 'Usuario actualizado exitosamente',
+    return sendSuccess(res, {
       user: {
         id: user.id,
         email: user.email,
@@ -423,7 +408,7 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), requireOrgAcce
         organizationId: user.organization_id,
         isActive: user.is_active
       }
-    });
+    }, 'Usuario actualizado exitosamente');
 
   } catch (error) {
     next(error);
@@ -435,39 +420,25 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), requireOrgA
   try {
     const { userId } = req.params;
 
-    // Verificar que el usuario existe
-    let userQuery = db.getClient()
+    const { data: existingUser, error: userError } = await db.getClient()
       .from('users')
       .select('id, organization_id, role, email')
       .eq('id', userId)
-      .eq('organization_id', req.user.organizationId);
-
-    const { data: existingUser, error: userError } = await userQuery.single();
+      .eq('organization_id', req.user.organizationId)
+      .single();
 
     if (userError || !existingUser) {
-      return res.status(404).json({
-        error: 'Usuario no encontrado',
-        message: 'No se pudo encontrar el usuario'
-      });
+      return sendNotFound(res, 'Usuario');
     }
 
-    // No permitir que se desactive a sí mismo
     if (existingUser.id === req.user.id) {
-      return res.status(400).json({
-        error: 'Operación no permitida',
-        message: 'No puedes desactivar tu propia cuenta'
-      });
+      return sendError(res, 'Operación no permitida', 'No puedes desactivar tu propia cuenta', 400);
     }
 
-    // Admin no puede desactivar otros admins
-    if (existingUser.role === 'admin') {
-      return res.status(403).json({
-        error: 'Permisos insuficientes',
-        message: 'No puedes desactivar usuarios con rol de admin'
-      });
+    if (!canManageUser(req.user, existingUser)) {
+      return sendForbidden(res, 'No puedes desactivar usuarios con rol de admin');
     }
 
-    // Desactivar usuario en lugar de eliminarlo
     const { error: updateError } = await db.getClient()
       .from('users')
       .update({ 
@@ -477,13 +448,9 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), requireOrgA
       .eq('id', userId);
 
     if (updateError) {
-      return res.status(500).json({
-        error: 'Error desactivando usuario',
-        message: 'No se pudo desactivar el usuario'
-      });
+      return sendError(res, 'Error desactivando usuario', 'No se pudo desactivar el usuario', 500);
     }
 
-    // Eliminar todos los refresh tokens del usuario
     await db.getClient()
       .from('refresh_tokens')
       .delete()
@@ -491,9 +458,7 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), requireOrgA
 
     logger.info(`Usuario ${existingUser.email} desactivado por ${req.user.email}`);
 
-    res.json({
-      message: 'Usuario desactivado exitosamente'
-    });
+    return sendSuccess(res, {}, 'Usuario desactivado exitosamente');
 
   } catch (error) {
     next(error);

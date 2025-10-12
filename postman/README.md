@@ -1,279 +1,320 @@
-# 📮 Colección de Postman - Gangazon Auth Service
+# Postman Collection - Gangazon Auth Service API
 
-## 🚀 Configuración Rápida
+Esta carpeta contiene la configuración completa de Postman para probar y documentar la API de Gangazon Auth Service.
+
+## 📁 Archivos incluidos
+
+- `Gangazon-Auth-API.postman_collection.json` - Colección completa de requests
+- `Gangazon-Local.postman_environment.json` - Entorno para desarrollo local
+- `Gangazon-Production.postman_environment.json` - Entorno para producción (Render)
+- `README.md` - Esta documentación
+
+## 🚀 Configuración inicial
 
 ### 1. Importar en Postman
 
-1. **Abrir Postman Desktop** o **Postman Web**
-2. **Importar Colección:**
-   - Click en **"Import"** (botón superior izquierdo)
-   - Arrastra o selecciona: `Gangazon-Auth-Service.postman_collection.json`
-   - Click **"Import"**
+1. Abre Postman Desktop o Web
+2. Ve a **Collections** → **Import**
+3. Arrastra o selecciona el archivo `Gangazon-Auth-API.postman_collection.json`
+4. Ve a **Environments** → **Import**
+5. Importa ambos archivos de entorno (.postman_environment.json)
 
-3. **Importar Entorno:**
-   - Click en **"Import"**
-   - Arrastra o selecciona: `Gangazon-Auth-Production.postman_environment.json`
-   - Click **"Import"**
+### 2. Conectar con GitHub
 
-4. **Activar Entorno:**
-   - En el dropdown superior derecha, selecciona: **"Gangazon Auth Service - Production"**
-   - Verifica que aparezca con un check verde ✓
+Para usar la función de **API Repository** de Postman:
 
-## 📋 Estructura de la Colección
+1. En Postman, ve a tu workspace
+2. Selecciona la colección importada
+3. Click en los tres puntos → **Connect Repository**
+4. Selecciona **GitHub**
+5. Autoriza Postman a acceder a tu GitHub
+6. Selecciona el repositorio: `Azul-Marino000080/gangazon-auth-service`
+7. Configura:
+   - Branch: `main`
+   - Directory: `postman/`
+   - Sync: **Two-way sync** (recomendado)
 
-### 🏥 **Health & Status**
-Verificar estado del servicio
-- `GET /health` - Health check básico
-- `GET /` - Información de la API
+### 3. Seleccionar entorno
 
-### 🔐 **Authentication**
-Sistema de autenticación JWT
-- `POST /api/auth/login` - Login (guarda token automáticamente)
-- `POST /api/auth/register` - Registrar nuevo usuario
-- `GET /api/auth/profile` - Obtener perfil del usuario
-- `POST /api/auth/refresh` - Renovar token
-- `POST /api/auth/logout` - Cerrar sesión
+En la esquina superior derecha de Postman, selecciona:
+- **Gangazon-Local** para desarrollo local
+- **Gangazon-Production** para probar en Render
 
-### 🏢 **Organizations**
-Gestión de organizaciones
-- `GET /api/organizations` - Listar organizaciones
-- `GET /api/organizations/:id` - Obtener organización por ID
+## 🔐 Autenticación
 
-### 🎯 **Franchises**
-Gestión de franquicias
-- `POST /api/franchises` - Crear franquicia
-- `GET /api/franchises` - Listar franquicias
-- `GET /api/franchises/:id` - Obtener franquicia
-- `PUT /api/franchises/:id` - Actualizar franquicia
-- `DELETE /api/franchises/:id` - Eliminar franquicia
+La colección utiliza **Bearer Token** que se guarda automáticamente al hacer login.
 
-### 📍 **Locations**
-Gestión de locales/ubicaciones
-- `POST /api/locations` - Crear local
-- `GET /api/locations?franchise_id=xxx` - Listar locales de franquicia
-- `GET /api/locations/:id` - Obtener local
-- `PUT /api/locations/:id` - Actualizar local
-- `DELETE /api/locations/:id` - Eliminar local
+### Flujo de autenticación:
 
-### 👥 **Employee Assignments**
-Asignaciones de empleados a locales
-- `POST /api/assignments` - Crear asignación
-- `GET /api/assignments?location_id=xxx` - Listar asignaciones
-- `GET /api/assignments/:id` - Obtener asignación
-- `PUT /api/assignments/:id` - Actualizar asignación
-- `DELETE /api/assignments/:id` - Finalizar asignación
+1. Ejecuta el request **Auth → Login**
+2. El token se guarda automáticamente en `{{accessToken}}`
+3. Todas las demás peticiones usarán este token
 
-### ⏰ **Employee Check-ins**
-Sistema de fichaje con GPS
-- `POST /api/checkins` - Hacer check-in
-- `POST /api/checkins/:id/checkout` - Hacer check-out
-- `GET /api/checkins/location/:id/active` - Empleados activos en local
-- `GET /api/checkins?user_id=xxx` - Check-ins de usuario
-- `GET /api/checkins?location_id=xxx` - Check-ins de local
+### Para crear tu primer usuario admin:
 
-## 🔄 Variables Automáticas
+1. Selecciona entorno **Gangazon-Local** o **Gangazon-Production**
+2. Ejecuta **Emergency → Create Admin User**
+3. Usa las credenciales creadas para hacer login
 
-Las siguientes variables se **rellenan automáticamente** al ejecutar las peticiones:
+## 📖 Estructura de la colección
 
-| Variable | Se guarda en | Uso |
-|----------|-------------|-----|
-| `auth_token` | Login Admin | Token JWT para autenticación |
-| `user_id` | Login Admin | ID del usuario autenticado |
-| `organization_id` | Login Admin | ID de la organización |
-| `user_role` | Login Admin | Rol del usuario |
-| `franchise_id` | Create Franchise | ID de franquicia creada |
-| `location_id` | Create Location | ID de local creado |
-| `assignment_id` | Create Assignment | ID de asignación creada |
-| `checkin_id` | Create Check-in | ID de check-in creado |
-| `new_user_id` | Register New User | ID de usuario recién creado |
-
-## 🎯 Flujo de Prueba Recomendado
-
-### **Paso 1: Autenticación**
 ```
-1. Ejecutar: "Login Admin"
-   → Esto guarda automáticamente el token y datos del usuario
-```
-
-### **Paso 2: Crear Estructura de Franquicia**
-```
-2. Ejecutar: "Create Franchise"
-   → Guarda franchise_id automáticamente
-
-3. Ejecutar: "Create Location"
-   → Usa franchise_id guardado
-   → Guarda location_id automáticamente
-```
-
-### **Paso 3: Gestionar Empleados**
-```
-4. Ejecutar: "Register New User"
-   → Guarda new_user_id automáticamente
-
-5. Ejecutar: "Create Assignment"
-   → Usa new_user_id y location_id guardados
-   → Guarda assignment_id automáticamente
+Gangazon Auth Service API/
+├── 🔐 Auth
+│   ├── Login
+│   ├── Register (Admin only)
+│   ├── Refresh Token
+│   ├── Logout
+│   ├── Change Password
+│   ├── Verify Token
+│   └── Get Profile
+├── 👤 Users
+│   ├── Create User
+│   ├── Get Current User
+│   ├── Update Current User
+│   ├── List Users
+│   ├── Get User by ID
+│   ├── Update User
+│   └── Deactivate User
+├── 🏢 Franchises
+│   ├── Create Franchise
+│   ├── List Franchises
+│   ├── Get Franchise by ID
+│   ├── Update Franchise
+│   └── Change Franchise Status
+├── 📍 Locations
+│   ├── Create Location
+│   ├── List Locations
+│   ├── Get Location by ID
+│   ├── Get Location Employees
+│   ├── Update Location
+│   └── Deactivate Location
+├── ⏰ Check-ins
+│   ├── Check In
+│   ├── Check Out
+│   ├── Get Status
+│   ├── List Check-ins
+│   ├── Get Check-in by ID
+│   ├── Update Check-in
+│   └── Get Active Employees in Location
+├── 📋 Assignments
+│   ├── Create Assignment
+│   ├── List Assignments
+│   ├── Get User Active Assignments
+│   ├── Get Assignment by ID
+│   ├── Update Assignment
+│   └── End Assignment
+├── 🎭 Roles
+│   ├── List Roles
+│   ├── Get Role by Name
+│   ├── Get Role Permissions
+│   ├── Check Permission
+│   └── Get Users by Role
+└── 🚨 Emergency
+    ├── Create Admin User
+    └── Check Status
 ```
 
-### **Paso 4: Sistema de Fichaje**
-```
-6. Ejecutar: "Create Check-in"
-   → Usa location_id guardado
-   → Guarda checkin_id automáticamente
+## 🧪 Tests automatizados
 
-7. Ejecutar: "Get Active Employees at Location"
-   → Ver empleados activos en el local
+Cada request incluye tests que verifican:
+- ✅ Status code correcto
+- ✅ Estructura de la respuesta
+- ✅ Tipos de datos correctos
+- ✅ Validaciones de negocio
 
-8. Ejecutar: "Create Check-out"
-   → Usa checkin_id guardado
-```
+### Ejecutar todos los tests:
 
-## 🔧 Personalización
+1. Click derecho en la colección
+2. Selecciona **Run collection**
+3. Selecciona los requests a ejecutar
+4. Click **Run Gangazon Auth Service API**
 
-### **Cambiar datos de prueba:**
-Puedes editar los body de las peticiones para usar tus propios datos:
+### Test scripts incluidos:
 
-**Franquicia:**
-```json
-{
-  "name": "Tu Franquicia",
-  "code": "TU-CODIGO",
-  "address": "Tu dirección",
-  "contact_phone": "+34XXXXXXXXX",
-  "contact_email": "email@ejemplo.com"
-}
-```
-
-**Local (con coordenadas GPS reales):**
-```json
-{
-  "franchise_id": "{{franchise_id}}",
-  "name": "Tu Local",
-  "address": "Tu dirección",
-  "latitude": 40.416775,
-  "longitude": -3.703790,
-  "max_distance_meters": 100
-}
-```
-
-### **Obtener coordenadas GPS:**
-1. Abre [Google Maps](https://maps.google.com)
-2. Click derecho en tu ubicación
-3. Copia las coordenadas (ejemplo: `40.416775, -3.703790`)
-4. Primera cifra = `latitude`, segunda = `longitude`
-
-## ⚙️ Crear Tests Personalizados
-
-Cada petición puede incluir tests en la pestaña **"Tests"**. Ejemplos:
-
-### **Test básico de status:**
 ```javascript
+// Ejemplo de test incluido
 pm.test("Status code is 200", function () {
     pm.response.to.have.status(200);
 });
-```
 
-### **Test de estructura de respuesta:**
-```javascript
 pm.test("Response has required fields", function () {
-    const jsonData = pm.response.json();
-    pm.expect(jsonData).to.have.property('id');
-    pm.expect(jsonData).to.have.property('name');
+    var jsonData = pm.response.json();
+    pm.expect(jsonData).to.have.property('success');
+    pm.expect(jsonData).to.have.property('data');
 });
 ```
 
-### **Guardar variable desde respuesta:**
-```javascript
-if (pm.response.code === 200) {
-    const jsonData = pm.response.json();
-    pm.environment.set('mi_variable', jsonData.algun_campo);
-    console.log('✅ Variable guardada:', jsonData.algun_campo);
+## 🔄 Variables de entorno
+
+### Gangazon-Local
+```
+baseUrl: http://localhost:10000
+accessToken: (se auto-genera)
+refreshToken: (se auto-genera)
+userId: (se auto-genera)
+locationId: (ejemplo)
+franchiseId: (ejemplo)
+```
+
+### Gangazon-Production
+```
+baseUrl: https://gangazon-auth-service.onrender.com
+accessToken: (se auto-genera)
+refreshToken: (se auto-genera)
+userId: (se auto-genera)
+locationId: (ejemplo)
+franchiseId: (ejemplo)
+```
+
+## 📝 Cómo usar cada endpoint
+
+### 1. Autenticación inicial
+
+```
+1. Emergency → Create Admin User
+   Crea tu primer usuario administrador
+   
+2. Auth → Login
+   Inicia sesión con las credenciales creadas
+   
+3. ¡Listo! Ya puedes usar todos los endpoints
+```
+
+### 2. Crear una franquicia
+
+```
+1. Franchises → Create Franchise
+   Crea una nueva franquicia
+   
+2. Copia el ID de la franquicia devuelto
+```
+
+### 3. Crear un local
+
+```
+1. Locations → Create Location
+   Usa el franchiseId de la franquicia creada
+   
+2. Copia el ID del local devuelto
+```
+
+### 4. Crear empleados
+
+```
+1. Users → Create User
+   Incluye franchiseId y locationId
+   
+2. El empleado se asigna automáticamente al local
+```
+
+### 5. Registrar asistencia
+
+```
+1. Check-ins → Check In
+   El empleado registra entrada
+   
+2. Check-ins → Check Out
+   El empleado registra salida
+```
+
+## 🎯 Ejemplos de uso
+
+### Crear usuario admin de emergencia
+
+```http
+POST {{baseUrl}}/api/emergency/create-admin
+Headers:
+  x-emergency-token: {{emergencyToken}}
+
+Body:
+{
+  "email": "admin@gangazon.com",
+  "password": "SecurePass123!",
+  "firstName": "Admin",
+  "lastName": "Gangazon",
+  "role": "admin"
 }
 ```
 
-### **Test de tiempo de respuesta:**
-```javascript
-pm.test("Response time is less than 500ms", function () {
-    pm.expect(pm.response.responseTime).to.be.below(500);
-});
+### Login
+
+```http
+POST {{baseUrl}}/api/auth/login
+Body:
+{
+  "email": "admin@gangazon.com",
+  "password": "SecurePass123!"
+}
 ```
 
-## 🚨 Notas Importantes
+### Crear franquicia
 
-### **Credenciales de Testing:**
+```http
+POST {{baseUrl}}/api/franchises
+Headers:
+  Authorization: Bearer {{accessToken}}
 
-#### 👨‍💼 **Admin de Testing (Pre-configurado):**
-- **Email:** `testing@gangazon.com`
-- **Password:** `Testing123!`
-- **Role:** `super_admin`
-- **Organization ID:** `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
-
-#### 👤 **Empleado de Testing:**
-- **Email:** `employee.test@gangazon.com`
-- **Password:** `Employee123!`
-- **Role:** `user`
-- **User ID:** `e5f6a7b8-c9d0-1234-ef01-23456789abcd`
-
-#### 🏢 **Datos Pre-creados para Testing:**
-- **Franchise ID:** `c3d4e5f6-a7b8-9012-cdef-123456789012`
-- **Location ID:** `d4e5f6a7-b8c9-0123-def0-123456789abc`
-- **Assignment ID:** `f6a7b8c9-d0e1-2345-f012-3456789abcde`
-- **GPS Coords:** `40.416775, -3.703790` (Puerta del Sol, Madrid)
-
-### **Token de autenticación:**
-- El token expira cada **15 minutos**
-- Si obtienes error 401, ejecuta **"Login Admin"** de nuevo
-- El token se guarda automáticamente en la variable `auth_token`
-
-### **Coordenadas GPS:**
-- Usa coordenadas **reales** de tus ubicaciones
-- El sistema valida que estés dentro del radio configurado
-- Por defecto: 100 metros de distancia máxima
-
-### **Variables de entorno:**
-- Todas las variables se guardan en el **entorno activo**
-- Verifica que el entorno **"Production"** esté seleccionado
-- Puedes ver las variables en el icono del ojo 👁️ (superior derecha)
-
-## 📊 Monitoreo y Automatización
-
-### **Runner de Colección:**
-1. Click en la colección
-2. Click en **"Run"**
-3. Selecciona las carpetas/peticiones a ejecutar
-4. Click **"Run Gangazon Auth Service"**
-
-### **Crear Monitor:**
-1. Click en la colección → **"..."** → **"Monitor collection"**
-2. Configura frecuencia (ej: cada 6 horas)
-3. Selecciona entorno de producción
-4. Activa notificaciones por email
-
-## 🎨 Crear Flows Visuales (Postman Flows)
-
-Para crear workflows visuales:
-
-1. Ve a **"Flows"** en la barra lateral de Postman
-2. Click **"Create Flow"**
-3. Arrastra bloques desde el panel izquierdo:
-   - **Send Request** → Selecciona peticiones de la colección
-   - **If** → Añade lógica condicional
-   - **Log** → Muestra mensajes de debug
-4. Conecta bloques arrastrando desde puntos de salida
-5. Click **"Run"** para ejecutar el flow
-
-### **Ejemplo de Flow simple:**
-```
-Start → Login Admin → Create Franchise → Create Location → Log Success
+Body:
+{
+  "name": "Gangazon Centro",
+  "franchiseeName": "Juan Pérez",
+  "franchiseeEmail": "juan@gangazon.com",
+  "franchiseePhone": "+34600123456",
+  "contractStartDate": "2025-01-01",
+  "contractEndDate": "2030-12-31",
+  "maxLocations": 5,
+  "maxEmployees": 50
+}
 ```
 
-## ✅ ¡Todo Listo!
+## 🔍 Búsqueda y filtros
 
-Ahora tienes:
-- ✅ Colección completa con todas las peticiones
-- ✅ Entorno de producción configurado
-- ✅ Variables automáticas que se rellenan solas
-- ✅ Scripts de test en peticiones clave
-- ✅ Documentación completa de uso
+La mayoría de endpoints de listado soportan parámetros de query:
 
-**¡Empieza ejecutando "Login Admin" y explora la API!** 🚀
+```
+GET /api/users?page=1&limit=50&search=juan&role=employee
+GET /api/franchises?status=active&search=centro
+GET /api/locations?franchiseId=xxx&city=Madrid
+GET /api/checkins?userId=xxx&date=2025-10-12&locationId=xxx
+GET /api/assignments?isActive=true&locationId=xxx
+```
+
+## 🐛 Troubleshooting
+
+### Error 401 - No autorizado
+- Verifica que has hecho login
+- Revisa que el token no ha expirado (15 minutos)
+- Usa **Refresh Token** para renovar
+
+### Error 403 - Prohibido
+- Tu rol no tiene permisos para esta acción
+- Verifica que tu usuario tiene el rol correcto
+
+### Error 404 - No encontrado
+- Verifica que el ID existe
+- Asegúrate de tener acceso a ese recurso
+
+### Token expirado
+1. Ejecuta **Auth → Refresh Token**
+2. O vuelve a hacer **Auth → Login**
+
+## 📚 Documentación adicional
+
+- [Documentación de roles y permisos](../README.md#roles-y-permisos)
+- [Esquema de base de datos](../database/schema.sql)
+- [Variables de entorno](../.env.production)
+
+## 🔐 Seguridad
+
+**IMPORTANTE:** 
+- Nunca subas tokens reales al repositorio
+- Usa variables de entorno para datos sensibles
+- Desactiva el endpoint de emergencia en producción
+- Cambia el `EMERGENCY_ADMIN_TOKEN` regularmente
+
+## 📞 Soporte
+
+Para reportar bugs o solicitar features:
+- Abre un issue en el repositorio GitHub
+- Contacta al equipo de desarrollo

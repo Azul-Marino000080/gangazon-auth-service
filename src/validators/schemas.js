@@ -1,6 +1,6 @@
 const Joi = require('joi');
 
-// Validación para registro de usuario
+// Validación para registro de usuario (SOLO ADMIN puede registrar)
 const registerSchema = Joi.object({
   email: Joi.string().email().required().messages({
     'string.email': 'Email debe tener un formato válido',
@@ -27,12 +27,12 @@ const registerSchema = Joi.object({
     'manager',      // Gerente de local
     'supervisor',   // Supervisor de local
     'employee',     // Empleado
-    'viewer'        // Solo lectura
+    'viewer'        // Solo lectura (sin modificar)
   ).default('employee')
 });
 
 // Validación para crear usuario (via POST /api/users)
-// Requiere franchiseId excepto para admin
+// Requiere franchiseId y locationId para crear asignación automática, excepto para admin
 const createUserSchema = Joi.object({
   email: Joi.string().email().required().messages({
     'string.email': 'Email debe tener un formato válido',
@@ -59,7 +59,7 @@ const createUserSchema = Joi.object({
     'manager',      // Gerente de local
     'supervisor',   // Supervisor de local
     'employee',     // Empleado
-    'viewer'        // Solo lectura
+    'viewer'        // Solo lectura (sin modificar)
   ).default('employee'),
   franchiseId: Joi.string().uuid().when('role', {
     is: 'admin',
@@ -69,6 +69,15 @@ const createUserSchema = Joi.object({
       'string.uuid': 'FranchiseId debe ser un UUID válido'
     })
   }),
+  locationId: Joi.string().uuid().when('role', {
+    is: Joi.string().valid('admin', 'franchisee', 'viewer'),
+    then: Joi.optional(),
+    otherwise: Joi.required().messages({
+      'any.required': 'LocationId es requerido para empleados, managers y supervisores',
+      'string.uuid': 'LocationId debe ser un UUID válido'
+    })
+  }),
+  startDate: Joi.date().iso().default(() => new Date().toISOString().split('T')[0]),
   phone: Joi.string().max(20).optional()
 });
 
@@ -213,7 +222,7 @@ const createAssignmentSchema = Joi.object({
     'any.required': 'ID de local es requerido',
     'string.uuid': 'ID de local debe ser un UUID válido'
   }),
-  role_at_location: Joi.string().valid('manager', 'supervisor', 'employee').default('employee'),
+  role_at_location: Joi.string().valid('manager', 'supervisor', 'employee', 'viewer').default('employee'),
   start_date: Joi.date().iso().required().messages({
     'any.required': 'Fecha de inicio es requerida',
     'date.iso': 'Fecha debe estar en formato ISO'
@@ -229,13 +238,19 @@ const createAssignmentSchema = Joi.object({
 const updateAssignmentSchema = Joi.object({
   role_at_location: Joi.string().valid('manager', 'supervisor', 'employee').optional(),
   start_date: Joi.date().iso().optional(),
-  end_date: Joi.date().iso().optional(),
+  end_date: Joi.date().iso().when('start_date', {
+    is: Joi.exist(),
+    then: Joi.date().iso().greater(Joi.ref('start_date')).optional(),
+    otherwise: Joi.date().iso().optional()
+  }).messages({
+    'date.greater': 'Fecha de fin debe ser posterior a la fecha de inicio'
+  }),
   shift_type: Joi.string().valid('full_time', 'part_time', 'temporary', 'cover').optional(),
   is_active: Joi.boolean().optional(),
   notes: Joi.string().max(500).optional()
 });
 
-// Validación para check-in
+// Validación para check-in (con validación GPS obligatoria si se envían coordenadas)
 const checkinSchema = Joi.object({
   locationId: Joi.string().uuid().required().messages({
     'any.required': 'ID de local es requerido',
@@ -245,7 +260,13 @@ const checkinSchema = Joi.object({
   coordinates: Joi.object({
     lat: Joi.number().min(-90).max(90).required(),
     lng: Joi.number().min(-180).max(180).required()
-  }).optional(),
+  }).when('checkInMethod', {
+    is: 'gps',
+    then: Joi.required().messages({
+      'any.required': 'Coordenadas GPS son requeridas cuando checkInMethod es "gps"'
+    }),
+    otherwise: Joi.optional()
+  }),
   notes: Joi.string().max(500).optional()
 });
 
