@@ -99,11 +99,11 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
       }
     } else {
       // Buscar o crear organización Gangazon
-      let { data: sysOrg } = await db.getClient()
+      let { data: sysOrg, error: orgCheckError } = await db.getClient()
         .from('organizations')
         .select('id')
         .eq('name', 'Gangazon')
-        .single();
+        .maybeSingle(); // Usar maybeSingle() para no lanzar error si no existe
 
       if (!sysOrg) {
         const { data: newOrg } = await db.getClient()
@@ -125,11 +125,11 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
     }
 
     // Verificar si el usuario ya existe
-    const { data: existingUser } = await db.getClient()
+    const { data: existingUser, error: userCheckError } = await db.getClient()
       .from('users')
       .select('id, email, is_active')
       .eq('email', email)
-      .single();
+      .maybeSingle(); // Usar maybeSingle() en lugar de single() para no lanzar error si no existe
 
     if (existingUser) {
       if (!existingUser.is_active) {
@@ -259,7 +259,12 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
     }, 'Usuario administrador creado exitosamente. Tokens generados para login automático');
 
   } catch (error) {
-    next(error);
+    logger.error('Error en endpoint de emergencia:', {
+      message: error.message,
+      stack: error.stack,
+      email: req.body?.email
+    });
+    return sendError(res, 'Error creando usuario de emergencia', error.message || 'Error interno del servidor', 500);
   }
 });
 
