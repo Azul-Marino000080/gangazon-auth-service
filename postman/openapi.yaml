@@ -1,0 +1,1131 @@
+openapi: 3.0.3
+info:
+  title: Gangazon Auth Service API
+  version: 1.0.0
+  description: |
+    Sistema de autenticación centralizada para aplicaciones corporativas de Gangazon. 
+    Esta API gestiona autenticación, usuarios, roles, franquicias, locales, asignaciones 
+    de empleados y control de asistencia (check-in/check-out).
+    
+    ## Características principales
+    - Autenticación JWT (Access Token + Refresh Token)
+    - Gestión de usuarios y roles jerárquicos
+    - Administración de franquicias y locales
+    - Asignaciones de empleados a locales
+    - Sistema de fichaje con validación GPS
+    - Control de acceso basado en roles (RBAC)
+    
+    ## Roles disponibles
+    - **admin**: Administrador de casa matriz (acceso completo)
+    - **franchisee**: Franquiciado (gestiona su franquicia)
+    - **manager**: Gerente de local
+    - **supervisor**: Supervisor de local
+    - **employee**: Empleado
+    - **viewer**: Solo lectura
+    
+  contact:
+    name: Gangazon Support
+    email: support@gangazon.com
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:3001
+    description: Servidor local de desarrollo
+  - url: https://gangazon-auth-service.onrender.com
+    description: Servidor de producción en Render
+
+tags:
+  - name: Health
+    description: Endpoints de verificación de estado del servicio
+  - name: Authentication
+    description: Autenticación y gestión de sesión
+  - name: Users
+    description: Gestión de usuarios del sistema
+  - name: Roles
+    description: Gestión de roles y permisos
+  - name: Franchises
+    description: Gestión de franquicias
+  - name: Locations
+    description: Gestión de locales comerciales
+  - name: Assignments
+    description: Asignaciones de empleados a locales
+  - name: Check-ins
+    description: Sistema de fichaje de empleados
+  - name: Emergency
+    description: Endpoints de emergencia (recuperación de acceso)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT de autenticación. Usar formato "Bearer {token}"
+    
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Título del error
+        message:
+          type: string
+          description: Mensaje descriptivo del error
+        details:
+          type: object
+          description: Detalles adicionales del error
+    
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: ID único del usuario
+        email:
+          type: string
+          format: email
+          description: Correo electrónico del usuario
+        firstName:
+          type: string
+          description: Nombre del usuario
+        lastName:
+          type: string
+          description: Apellido del usuario
+        role:
+          type: string
+          enum: [admin, franchisee, manager, supervisor, employee, viewer]
+          description: Rol del usuario en el sistema
+        organizationId:
+          type: string
+          format: uuid
+          description: ID de la organización
+        isActive:
+          type: boolean
+          description: Si el usuario está activo
+        emailVerified:
+          type: boolean
+          description: Si el email está verificado
+        createdAt:
+          type: string
+          format: date-time
+          description: Fecha de creación
+        lastLogin:
+          type: string
+          format: date-time
+          description: Última fecha de login
+    
+    Franchise:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        franchiseeName:
+          type: string
+        franchiseeEmail:
+          type: string
+          format: email
+        franchiseePhone:
+          type: string
+        contractStartDate:
+          type: string
+          format: date
+        contractEndDate:
+          type: string
+          format: date
+        maxLocations:
+          type: integer
+        maxEmployees:
+          type: integer
+        billingTier:
+          type: string
+          enum: [basic, standard, premium, enterprise]
+        status:
+          type: string
+          enum: [active, suspended, terminated, pending]
+        createdAt:
+          type: string
+          format: date-time
+    
+    Location:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        franchiseId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        postalCode:
+          type: string
+        country:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        managerId:
+          type: string
+          format: uuid
+        maxEmployees:
+          type: integer
+        coordinates:
+          type: object
+          properties:
+            lat:
+              type: number
+              format: double
+            lng:
+              type: number
+              format: double
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    
+    Assignment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+          format: uuid
+        roleAtLocation:
+          type: string
+          enum: [manager, supervisor, employee, viewer]
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        shiftType:
+          type: string
+          enum: [full_time, part_time, temporary, cover]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    
+    Checkin:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        locationId:
+          type: string
+          format: uuid
+        checkInTime:
+          type: string
+          format: date-time
+        checkOutTime:
+          type: string
+          format: date-time
+          nullable: true
+        checkInMethod:
+          type: string
+          enum: [manual, gps, qr_code, nfc]
+        hoursWorked:
+          type: number
+          format: double
+          nullable: true
+        breakDuration:
+          type: integer
+          description: Duración del descanso en minutos
+        notes:
+          type: string
+        verifiedBy:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+paths:
+  /health:
+    get:
+      summary: Verificar estado del servicio
+      description: Verifica el estado del servicio y la conexión a la base de datos
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Servicio funcionando correctamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  database:
+                    type: string
+                    example: connected
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/auth/login:
+    post:
+      summary: Iniciar sesión
+      description: Autentica un usuario y devuelve tokens de acceso y refresco
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: admin@gangazon.com
+                password:
+                  type: string
+                  format: password
+                  example: SecurePass123!
+      responses:
+        '200':
+          description: Login exitoso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      tokens:
+                        type: object
+                        properties:
+                          accessToken:
+                            type: string
+                            description: Token JWT de acceso (válido 1 hora)
+                          refreshToken:
+                            type: string
+                            description: Token de refresco (válido 7 días)
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/refresh:
+    post:
+      summary: Refrescar token de acceso
+      description: Renueva el access token usando un refresh token válido
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  description: Refresh token obtenido en el login
+      responses:
+        '200':
+          description: Token renovado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      tokens:
+                        type: object
+                        properties:
+                          accessToken:
+                            type: string
+        '401':
+          description: Refresh token inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/logout:
+    post:
+      summary: Cerrar sesión
+      description: Invalida el refresh token del usuario
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: Sesión cerrada exitosamente
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/profile:
+    get:
+      summary: Obtener perfil del usuario autenticado
+      description: Retorna información completa del usuario actual
+      tags:
+        - Authentication
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Perfil obtenido exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/users:
+    get:
+      summary: Listar usuarios
+      description: Lista todos los usuarios con paginación y filtros (solo admins)
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Buscar por nombre o email
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, franchisee, manager, supervisor, employee, viewer]
+      responses:
+        '200':
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
+        '403':
+          description: Acceso denegado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    
+    post:
+      summary: Crear usuario
+      description: Crea un nuevo usuario (admin o franchisee). Si se proporciona locationId, crea asignación automática
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - firstName
+                - lastName
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                  description: Mínimo 8 caracteres con mayúsculas, minúsculas, números y símbolos
+                firstName:
+                  type: string
+                  minLength: 2
+                lastName:
+                  type: string
+                  minLength: 2
+                role:
+                  type: string
+                  enum: [admin, franchisee, manager, supervisor, employee, viewer]
+                  default: employee
+                franchiseId:
+                  type: string
+                  format: uuid
+                  description: Requerido excepto para rol admin
+                locationId:
+                  type: string
+                  format: uuid
+                  description: Crea asignación automática al local
+                phone:
+                  type: string
+                startDate:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Usuario creado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+                  assignment:
+                    $ref: '#/components/schemas/Assignment'
+        '409':
+          description: El email ya existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/franchises:
+    get:
+      summary: Listar franquicias
+      description: Lista franquicias según permisos del usuario
+      tags:
+        - Franchises
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, suspended, terminated, pending]
+      responses:
+        '200':
+          description: Lista de franquicias
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  franchises:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Franchise'
+                  pagination:
+                    type: object
+    
+    post:
+      summary: Crear franquicia
+      description: Crea una nueva franquicia (solo admin)
+      tags:
+        - Franchises
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - franchiseeName
+                - franchiseeEmail
+              properties:
+                name:
+                  type: string
+                franchiseeName:
+                  type: string
+                franchiseeEmail:
+                  type: string
+                  format: email
+                franchiseePhone:
+                  type: string
+                contractStartDate:
+                  type: string
+                  format: date
+                contractEndDate:
+                  type: string
+                  format: date
+                maxLocations:
+                  type: integer
+                  default: 5
+                maxEmployees:
+                  type: integer
+                  default: 25
+                billingTier:
+                  type: string
+                  enum: [basic, standard, premium, enterprise]
+                  default: standard
+      responses:
+        '201':
+          description: Franquicia creada exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  franchise:
+                    $ref: '#/components/schemas/Franchise'
+
+  /api/locations:
+    get:
+      summary: Listar locales
+      description: Lista locales según permisos del usuario
+      tags:
+        - Locations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: franchiseId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: city
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lista de locales
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Location'
+                  pagination:
+                    type: object
+    
+    post:
+      summary: Crear local
+      description: Crea un nuevo local dentro de una franquicia
+      tags:
+        - Locations
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - franchiseId
+                - name
+                - address
+                - city
+              properties:
+                franchiseId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                address:
+                  type: string
+                city:
+                  type: string
+                postalCode:
+                  type: string
+                country:
+                  type: string
+                  default: España
+                phone:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                managerId:
+                  type: string
+                  format: uuid
+                maxEmployees:
+                  type: integer
+                  default: 8
+                coordinates:
+                  type: object
+                  properties:
+                    lat:
+                      type: number
+                      format: double
+                      minimum: -90
+                      maximum: 90
+                    lng:
+                      type: number
+                      format: double
+                      minimum: -180
+                      maximum: 180
+                timezone:
+                  type: string
+                  default: Europe/Madrid
+      responses:
+        '201':
+          description: Local creado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  location:
+                    $ref: '#/components/schemas/Location'
+
+  /api/assignments:
+    get:
+      summary: Listar asignaciones
+      description: Lista asignaciones de empleados a locales
+      tags:
+        - Assignments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: userId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: locationId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Lista de asignaciones
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assignments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Assignment'
+                  pagination:
+                    type: object
+    
+    post:
+      summary: Crear asignación
+      description: Asigna un empleado a un local con un rol específico
+      tags:
+        - Assignments
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - location_id
+                - start_date
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                location_id:
+                  type: string
+                  format: uuid
+                role_at_location:
+                  type: string
+                  enum: [manager, supervisor, employee, viewer]
+                  default: employee
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+                  nullable: true
+                shift_type:
+                  type: string
+                  enum: [full_time, part_time, temporary, cover]
+                  default: full_time
+                notes:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Asignación creada exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  assignment:
+                    $ref: '#/components/schemas/Assignment'
+
+  /api/checkins/checkin:
+    post:
+      summary: Registrar entrada (check-in)
+      description: Registra la entrada de un empleado con validación GPS opcional
+      tags:
+        - Check-ins
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - locationId
+                - checkInMethod
+              properties:
+                locationId:
+                  type: string
+                  format: uuid
+                checkInMethod:
+                  type: string
+                  enum: [manual, gps, qr_code, nfc]
+                coordinates:
+                  type: object
+                  properties:
+                    lat:
+                      type: number
+                      format: double
+                    lng:
+                      type: number
+                      format: double
+                  description: Requerido si checkInMethod es 'gps'
+                notes:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Check-in registrado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  checkin:
+                    $ref: '#/components/schemas/Checkin'
+                  gpsValidation:
+                    type: object
+                    properties:
+                      valid:
+                        type: boolean
+                      distance:
+                        type: number
+                      message:
+                        type: string
+        '400':
+          description: Coordenadas GPS fuera de rango o datos inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/checkins/checkout:
+    post:
+      summary: Registrar salida (check-out)
+      description: Registra la salida de un empleado y calcula horas trabajadas
+      tags:
+        - Check-ins
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                checkinId:
+                  type: string
+                  format: uuid
+                  description: Si no se proporciona, usa el check-in activo
+                breakDuration:
+                  type: integer
+                  description: Duración del descanso en minutos
+                notes:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Check-out registrado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  checkin:
+                    $ref: '#/components/schemas/Checkin'
+        '404':
+          description: No se encontró check-in activo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/checkins/status:
+    get:
+      summary: Obtener estado actual
+      description: Verifica si el usuario tiene un check-in activo
+      tags:
+        - Check-ins
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Estado del check-in actual
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  hasActiveCheckin:
+                    type: boolean
+                  checkin:
+                    $ref: '#/components/schemas/Checkin'
+                  elapsedTime:
+                    type: string
+                    description: Tiempo transcurrido desde el check-in
+
+  /api/roles:
+    get:
+      summary: Listar roles disponibles
+      description: Lista roles que el usuario puede ver/asignar según su nivel
+      tags:
+        - Roles
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de roles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  roles:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        displayName:
+                          type: string
+                        description:
+                          type: string
+                        permissions:
+                          type: array
+                          items:
+                            type: string
+
+  /api/emergency/create-admin:
+    post:
+      summary: Crear administrador de emergencia
+      description: |
+        ⚠️ **ENDPOINT DE EMERGENCIA** ⚠️
+        
+        Crea un usuario administrador sin autenticación previa.
+        
+        **Requisitos:**
+        1. Variable de entorno `ENABLE_EMERGENCY_ENDPOINT=true`
+        2. Variable de entorno `EMERGENCY_ADMIN_TOKEN` configurada
+        3. Header `x-emergency-token` con el token correcto
+        
+        **IMPORTANTE:** Desactive este endpoint en producción
+      tags:
+        - Emergency
+      parameters:
+        - name: x-emergency-token
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Token de emergencia configurado en variables de entorno
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - firstName
+                - lastName
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+                firstName:
+                  type: string
+                lastName:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, franchisee]
+                  default: admin
+      responses:
+        '201':
+          description: Usuario de emergencia creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '403':
+          description: Endpoint deshabilitado o token inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
