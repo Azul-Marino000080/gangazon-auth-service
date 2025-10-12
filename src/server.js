@@ -9,7 +9,7 @@ const errorHandler = require('./middleware/errorHandler');
 // Importar rutas
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
-const organizationRoutes = require('./routes/organizations');
+// organizationRoutes eliminado - Gangazon es una única franquicia
 const roleRoutes = require('./routes/roles');
 const franchiseRoutes = require('./routes/franchises');
 const locationRoutes = require('./routes/locations');
@@ -76,7 +76,7 @@ app.get('/health', async (req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/organizations', organizationRoutes);
+// app.use('/api/organizations', organizationRoutes); // Eliminado - una sola organización
 app.use('/api/roles', roleRoutes);
 app.use('/api/franchises', franchiseRoutes);
 app.use('/api/locations', locationRoutes);

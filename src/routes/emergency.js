@@ -98,8 +98,8 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
       });
     }
 
-    // Validar rol
-    const allowedRoles = ['admin', 'super_admin', 'franchisor_admin'];
+    // Validar rol (solo roles administrativos permitidos)
+    const allowedRoles = ['admin', 'franchisee'];
     const selectedRole = role || 'admin';
     if (!allowedRoles.includes(selectedRole)) {
       return res.status(400).json({
@@ -176,14 +176,29 @@ router.post('/create-admin', checkEmergencyEnabled, checkEmergencyToken, async (
         });
       }
     } else {
-      // Buscar u obtener organización del sistema
+      // Buscar o crear organización Gangazon
       let { data: sysOrg } = await db.getClient()
         .from('organizations')
         .select('id')
-        .eq('name', 'Gangazon System')
+        .eq('name', 'Gangazon')
         .single();
 
-      if (sysOrg) {
+      if (!sysOrg) {
+        // Crear organización Gangazon si no existe
+        const { data: newOrg } = await db.getClient()
+          .from('organizations')
+          .insert({
+            id: '00000000-0000-0000-0000-000000000001',
+            name: 'Gangazon',
+            description: 'Franquicia matriz de Gangazon',
+            is_active: true,
+            created_at: new Date().toISOString()
+          })
+          .select('id')
+          .single();
+        
+        finalOrgId = newOrg ? newOrg.id : '00000000-0000-0000-0000-000000000001';
+      } else {
         finalOrgId = sysOrg.id;
       }
     }

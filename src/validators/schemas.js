@@ -21,18 +21,14 @@ const registerSchema = Joi.object({
     'string.max': 'El apellido no puede exceder 50 caracteres',
     'any.required': 'Apellido es requerido'
   }),
-  organizationId: Joi.string().uuid().optional(),
   role: Joi.string().valid(
-    'user', 
-    'admin', 
-    'super_admin', 
-    'franchisor_admin', 
-    'franchisor_ceo',
-    'franchisee_admin',
-    'franchisee_owner',
-    'location_manager',
-    'location_supervisor'
-  ).default('user')
+    'admin',        // Administrador Gangazon (casa matriz)
+    'franchisee',   // Dueño de franquicia
+    'manager',      // Gerente de local
+    'supervisor',   // Supervisor de local
+    'employee',     // Empleado
+    'viewer'        // Solo lectura
+  ).default('employee')
 });
 
 // Validación para login
@@ -65,25 +61,10 @@ const changePasswordSchema = Joi.object({
   })
 });
 
-// Validación para crear organización
-const createOrganizationSchema = Joi.object({
-  name: Joi.string().min(2).max(100).required().messages({
-    'string.min': 'El nombre de la organización debe tener al menos 2 caracteres',
-    'string.max': 'El nombre de la organización no puede exceder 100 caracteres',
-    'any.required': 'Nombre de la organización es requerido'
-  }),
-  description: Joi.string().max(500).optional(),
-  website: Joi.string().uri().optional(),
-  industry: Joi.string().max(100).optional(),
-  size: Joi.string().valid('startup', 'small', 'medium', 'large', 'enterprise').optional()
-});
+// Organizations eliminado - Gangazon es una única franquicia
 
-// Validación para crear franquicia
+// Validación para crear franquicia (franquiciado)
 const createFranchiseSchema = Joi.object({
-  organizationId: Joi.string().uuid().required().messages({
-    'any.required': 'ID de organización es requerido',
-    'string.uuid': 'ID de organización debe ser un UUID válido'
-  }),
   name: Joi.string().min(2).max(100).required().messages({
     'string.min': 'El nombre de la franquicia debe tener al menos 2 caracteres',
     'string.max': 'El nombre de la franquicia no puede exceder 100 caracteres',
@@ -191,7 +172,7 @@ const createAssignmentSchema = Joi.object({
     'any.required': 'ID de local es requerido',
     'string.uuid': 'ID de local debe ser un UUID válido'
   }),
-  role_at_location: Joi.string().valid('location_manager', 'location_supervisor', 'location_employee', 'location_temp', 'employee').default('location_employee'),
+  role_at_location: Joi.string().valid('manager', 'supervisor', 'employee').default('employee'),
   start_date: Joi.date().iso().required().messages({
     'any.required': 'Fecha de inicio es requerida',
     'date.iso': 'Fecha debe estar en formato ISO'
@@ -205,7 +186,7 @@ const createAssignmentSchema = Joi.object({
 
 // Validación para actualizar asignación
 const updateAssignmentSchema = Joi.object({
-  role_at_location: Joi.string().valid('location_manager', 'location_supervisor', 'location_employee', 'location_temp', 'employee').optional(),
+  role_at_location: Joi.string().valid('manager', 'supervisor', 'employee').optional(),
   start_date: Joi.date().iso().optional(),
   end_date: Joi.date().iso().optional(),
   shift_type: Joi.string().valid('full_time', 'part_time', 'temporary', 'cover').optional(),
@@ -246,15 +227,12 @@ const updateUserSchema = Joi.object({
   lastName: Joi.string().min(2).max(50).optional(),
   email: Joi.string().email().optional(),
   role: Joi.string().valid(
-    'user', 
-    'admin', 
-    'super_admin', 
-    'franchisor_admin', 
-    'franchisor_ceo',
-    'franchisee_admin',
-    'franchisee_owner',
-    'location_manager',
-    'location_supervisor'
+    'admin',        // Administrador Gangazon
+    'franchisee',   // Dueño de franquicia
+    'manager',      // Gerente de local
+    'supervisor',   // Supervisor de local
+    'employee',     // Empleado
+    'viewer'        // Solo lectura
   ).optional(),
   isActive: Joi.boolean().optional()
 });
@@ -264,7 +242,6 @@ module.exports = {
   loginSchema,
   refreshTokenSchema,
   changePasswordSchema,
-  createOrganizationSchema,
   updateUserSchema,
   createFranchiseSchema,
   updateFranchiseSchema,
