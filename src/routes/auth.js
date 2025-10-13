@@ -1,356 +1,185 @@
 const express = require('express');
-const router = express.Router();
-const authUtils = require('../utils/auth');
-const db = require('../config/database');
-const logger = require('../utils/logger');
-const { registerSchema, loginSchema, refreshTokenSchema, changePasswordSchema } = require('../validators/schemas');
-const { authenticateToken, requireRole } = require('../middleware/auth');
-const { getGangazonOrganization } = require('../utils/permissions');
-const { v4: uuidv4 } = require('uuid');
-const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict } = require('../utils/responseHelpers');
+const bcrypt = require('bcryptjs');
+const { createClient } = require('../config/database');
+const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { validate } = require('../middleware/validation');
-const { recordExists } = require('../utils/queryHelpers');
-const { TOKENS, MESSAGES } = require('../utils/constants');
+const { loginSchema, refreshTokenSchema } = require('../validators/schemas');
+const { authenticateToken } = require('../middleware/auth');
+const { generateAccessToken, generateRefreshToken, storeRefreshToken, validateRefreshToken, revokeRefreshToken } = require('../utils/jwt');
+const { getOne, createAuditLog } = require('../utils/queryHelpers');
+const logger = require('../utils/logger');
 
-// Registro de usuario (SOLO ADMIN)
-// Para usuarios normales usar POST /api/users
-router.post('/register', authenticateToken, requireRole(['admin']), validate(registerSchema), async (req, res, next) => {
-  try {
-    const { email, password, firstName, lastName, role } = req.body;
+const router = express.Router();
 
-    // Verificar si el usuario ya existe
-    const exists = await recordExists('users', { email });
-    if (exists) {
-      return sendConflict(res, 'Ya existe un usuario con este email');
-    }
+/**
+ * POST /api/auth/login
+ */
+router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
+  const { email, password, applicationCode } = req.body;
+  const supabase = createClient();
 
-    // Obtener organización Gangazon (única organización)
-    const organizationId = await getGangazonOrganization();
+  // Verificar aplicación
+  const application = await getOne('applications', { code: applicationCode }, 'Aplicación no encontrada');
+  if (!application.is_active) throw new AppError('Aplicación desactivada', 403);
 
-    // Hash de la contraseña
-    const hashedPassword = await authUtils.hashPassword(password);
+  // Buscar usuario
+  const user = await getOne('users', { email: email.toLowerCase() }, 'Credenciales inválidas');
+  if (!user.is_active) throw new AppError('Usuario desactivado', 403);
 
-    // Crear usuario
-    const { data: user, error: userError } = await db.getClient()
-      .from('users')
-      .insert({
-        id: uuidv4(),
-        email,
-        password_hash: hashedPassword,
-        first_name: firstName,
-        last_name: lastName,
-        organization_id: organizationId,
-        role: role || 'employee',
-        is_active: true,
-        email_verified: false,
-        created_at: new Date().toISOString()
-      })
-      .select('id, email, first_name, last_name, role, organization_id')
-      .single();
+  // Verificar contraseña
+  if (!await bcrypt.compare(password, user.password_hash)) {
+    throw new AppError('Credenciales inválidas', 401);
+  }
 
-    if (userError) {
-      logger.error('Error creando usuario:', userError);
-      return sendError(res, 'Error creando usuario', 'No se pudo crear el usuario', 500);
-    }
+  // Obtener permisos
+  const { data: userPermissions } = await supabase
+    .from('v_user_permissions_by_app')
+    .select('permission_code')
+    .eq('user_id', user.id)
+    .eq('application_id', application.id);
 
-    // Generar tokens
-    const tokenPayload = {
+  const permissions = userPermissions?.map(p => p.permission_code) || [];
+
+  // Generar tokens
+  const accessToken = generateAccessToken(user, permissions, application.id);
+  const refreshToken = generateRefreshToken(user, application.id);
+  await storeRefreshToken(user.id, refreshToken);
+
+  // Crear sesión y auditoría
+  await Promise.all([
+    supabase.from('sessions').insert({
+      user_id: user.id,
+      application_id: application.id,
+      ip_address: req.ip,
+      user_agent: req.get('user-agent')
+    }),
+    createAuditLog({
       userId: user.id,
-      email: user.email,
-      role: user.role,
-      organizationId: user.organization_id
-    };
+      applicationId: application.id,
+      action: 'login',
+      ipAddress: req.ip,
+      details: { email, applicationCode }
+    })
+  ]);
 
-    const accessToken = authUtils.generateAccessToken(tokenPayload);
-    const refreshToken = authUtils.generateRefreshToken({ userId: user.id });
+  logger.info(`Login exitoso: ${email} en ${applicationCode}`);
 
-    // Guardar refresh token
-    await db.getClient()
-      .from('refresh_tokens')
-      .insert({
-        id: uuidv4(),
-        user_id: user.id,
-        token: refreshToken,
-        expires_at: new Date(Date.now() + TOKENS.REFRESH_TOKEN_EXPIRY_MS).toISOString(),
-        created_at: new Date().toISOString()
-      });
-
-    logger.info(`Usuario registrado: ${email}`);
-
-    return sendCreated(res, {
+  res.json({
+    success: true,
+    data: {
       user: {
         id: user.id,
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id
+        franchiseId: user.franchise_id
       },
-      tokens: { accessToken, refreshToken }
-    }, 'Usuario registrado exitosamente');
+      tokens: { accessToken, refreshToken },
+      permissions,
+      redirectUrl: application.redirect_url
+    }
+  });
+}));
 
-  } catch (error) {
-    next(error);
+/**
+ * POST /api/auth/logout
+ */
+router.post('/logout', validate(refreshTokenSchema), catchAsync(async (req, res) => {
+  await revokeRefreshToken(req.body.refreshToken);
+
+  if (req.user) {
+    const supabase = createClient();
+    await Promise.all([
+      supabase.from('sessions').update({ ended_at: new Date().toISOString() })
+        .eq('user_id', req.user.id).is('ended_at', null),
+      createAuditLog({ userId: req.user.id, action: 'logout', ipAddress: req.ip })
+    ]);
   }
-});
 
-// Login de usuario
-router.post('/login', validate(loginSchema), async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
+  logger.info('Logout exitoso');
+  res.json({ success: true, message: 'Sesión cerrada correctamente' });
+}));
 
-    // Buscar usuario
-    const { data: user, error: userError } = await db.getClient()
-      .from('users')
-      .select('id, email, password_hash, first_name, last_name, role, organization_id, is_active, last_login_at')
-      .eq('email', email)
-      .single();
+/**
+ * POST /api/auth/refresh
+ */
+router.post('/refresh', validate(refreshTokenSchema), catchAsync(async (req, res) => {
+  const tokenData = await validateRefreshToken(req.body.refreshToken);
+  if (!tokenData) throw new AppError('Refresh token inválido o expirado', 401);
 
-    if (userError || !user) {
-      return sendError(res, MESSAGES.INVALID_CREDENTIALS, 'Email o contraseña incorrectos', 401);
-    }
+  const supabase = createClient();
+  const user = await getOne('users', { id: tokenData.user_id }, 'Usuario no encontrado');
+  if (!user.is_active) throw new AppError('Usuario desactivado', 403);
 
-    if (!user.is_active) {
-      return sendError(res, MESSAGES.ACCOUNT_INACTIVE, 'Tu cuenta ha sido desactivada', 401);
-    }
-
-    // Verificar contraseña
-    const isValidPassword = await authUtils.verifyPassword(password, user.password_hash);
-    if (!isValidPassword) {
-      return sendError(res, MESSAGES.INVALID_CREDENTIALS, 'Email o contraseña incorrectos', 401);
-    }
-
-    // Actualizar último login
-    await db.getClient()
-      .from('users')
-      .update({ last_login_at: new Date().toISOString() })
-      .eq('id', user.id);
-
-    // Generar tokens
-    const tokenPayload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      organizationId: user.organization_id
-    };
-
-    const accessToken = authUtils.generateAccessToken(tokenPayload);
-    const refreshToken = authUtils.generateRefreshToken({ userId: user.id });
-
-    // Guardar refresh token
-    await db.getClient()
-      .from('refresh_tokens')
-      .insert({
-        id: uuidv4(),
-        user_id: user.id,
-        token: refreshToken,
-        expires_at: new Date(Date.now() + TOKENS.REFRESH_TOKEN_EXPIRY_MS).toISOString(),
-        created_at: new Date().toISOString()
-      });
-
-    logger.info(`Usuario logueado: ${email}`);
-
-    return sendSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        lastLogin: user.last_login_at
-      },
-      tokens: { accessToken, refreshToken }
-    }, 'Login exitoso');
-
-  } catch (error) {
-    next(error);
+  // Validar aplicación si está en el token
+  let applicationId = tokenData.applicationId;
+  if (applicationId) {
+    const application = await getOne('applications', { id: applicationId }, 'Aplicación no encontrada');
+    if (!application.is_active) throw new AppError('Aplicación desactivada', 403);
   }
-});
 
-// Refresh token
-router.post('/refresh', validate(refreshTokenSchema), async (req, res, next) => {
-  try {
-    const { refreshToken } = req.body;
-
-    // Verificar refresh token
-    const decoded = authUtils.verifyToken(refreshToken, true);
-
-    // Verificar que el token existe en la base de datos
-    const { data: tokenData, error: tokenError } = await db.getClient()
-      .from('refresh_tokens')
-      .select('id, user_id, expires_at')
-      .eq('token', refreshToken)
-      .eq('user_id', decoded.userId)
-      .single();
-
-    if (tokenError || !tokenData) {
-      return sendError(res, 'Refresh token inválido', 'El refresh token no es válido', 401);
-    }
-
-    // Verificar que no haya expirado
-    if (new Date(tokenData.expires_at) < new Date()) {
-      await db.getClient()
-        .from('refresh_tokens')
-        .delete()
-        .eq('id', tokenData.id);
-
-      return sendError(res, 'Refresh token expirado', 'El refresh token ha expirado', 401);
-    }
-
-    // Obtener datos del usuario
-    const { data: user, error: userError } = await db.getClient()
-      .from('users')
-      .select('id, email, role, organization_id, is_active')
-      .eq('id', decoded.userId)
-      .single();
-
-    if (userError || !user || !user.is_active) {
-      return sendError(res, 'Usuario inválido', 'El usuario no existe o está inactivo', 401);
-    }
-
-    // Generar nuevo access token
-    const tokenPayload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      organizationId: user.organization_id
-    };
-
-    const newAccessToken = authUtils.generateAccessToken(tokenPayload);
-
-    return sendSuccess(res, {
-      tokens: {
-        accessToken: newAccessToken,
-        refreshToken
-      }
-    }, 'Token renovado exitosamente');
-
-  } catch (error) {
-    next(error);
+  // Obtener permisos filtrados por aplicación
+  let permissionsQuery = supabase
+    .from('v_user_permissions_by_app')
+    .select('permission_code')
+    .eq('user_id', user.id);
+  
+  if (applicationId) {
+    permissionsQuery = permissionsQuery.eq('application_id', applicationId);
   }
-});
 
-// Logout
-router.post('/logout', authenticateToken, async (req, res, next) => {
-  try {
-    const refreshToken = req.body.refreshToken;
+  const { data: userPermissions } = await permissionsQuery;
 
-    if (refreshToken) {
-      await db.getClient()
-        .from('refresh_tokens')
-        .delete()
-        .eq('token', refreshToken)
-        .eq('user_id', req.user.id);
-    }
+  const permissions = userPermissions?.map(p => p.permission_code) || [];
+  const newAccessToken = generateAccessToken(user, permissions, applicationId);
 
-    return sendSuccess(res, {}, 'Logout exitoso');
+  logger.info(`Token renovado para usuario: ${user.email}`);
+  res.json({ success: true, data: { tokens: { accessToken: newAccessToken, refreshToken: req.body.refreshToken } } });
+}));
 
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Cambiar contraseña
-router.post('/change-password', authenticateToken, validate(changePasswordSchema), async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-
-    // Obtener contraseña actual del usuario
-    const { data: user, error: userError } = await db.getClient()
-      .from('users')
-      .select('password_hash')
-      .eq('id', req.user.id)
-      .single();
-
-    if (userError || !user) {
-      return sendNotFound(res, 'Usuario');
-    }
-
-    // Verificar contraseña actual
-    const isCurrentValid = await authUtils.verifyPassword(currentPassword, user.password_hash);
-    if (!isCurrentValid) {
-      return sendError(res, 'Contraseña incorrecta', 'La contraseña actual es incorrecta', 400);
-    }
-
-    // Hash de la nueva contraseña
-    const newHashedPassword = await authUtils.hashPassword(newPassword);
-
-    // Actualizar contraseña
-    const { error: updateError } = await db.getClient()
-      .from('users')
-      .update({ 
-        password_hash: newHashedPassword,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', req.user.id);
-
-    if (updateError) {
-      return sendError(res, 'Error actualizando contraseña', 'No se pudo actualizar la contraseña', 500);
-    }
-
-    logger.info(`Contraseña cambiada para usuario: ${req.user.email}`);
-
-    return sendSuccess(res, {}, 'Contraseña actualizada exitosamente');
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Verificar token (para validación desde otras aplicaciones)
-router.post('/verify', authenticateToken, (req, res) => {
+/**
+ * POST /api/auth/verify
+ */
+router.post('/verify', authenticateToken, catchAsync(async (req, res) => {
   res.json({
     valid: true,
-    user: req.user
-  });
-});
-
-// Obtener perfil del usuario autenticado
-router.get('/profile', authenticateToken, async (req, res, next) => {
-  try {
-    // Obtener información completa del usuario
-    const { data: user, error: userError } = await db.getClient()
-      .from('users')
-      .select(`
-        id,
-        email,
-        first_name,
-        last_name,
-        role,
-        organization_id,
-        is_active,
-        email_verified,
-        last_login_at,
-        created_at,
-        organizations(id, name)
-      `)
-      .eq('id', req.user.id)
-      .single();
-
-    if (userError || !user) {
-      return sendNotFound(res, 'Usuario');
+    user: {
+      userId: req.user.id,
+      email: req.user.email,
+      firstName: req.user.first_name,
+      lastName: req.user.last_name,
+      franchiseId: req.user.franchise_id,
+      permissions: req.user.permissions
     }
+  });
+}));
 
-    return sendSuccess(res, {
+/**
+ * GET /api/auth/me
+ */
+router.get('/me', authenticateToken, catchAsync(async (req, res) => {
+  const user = await getOne('v_users_with_franchises', { id: req.user.id }, 'Usuario no encontrado');
+  
+  res.json({
+    success: true,
+    data: {
       user: {
         id: user.id,
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        organization: user.organizations,
+        phone: user.phone,
         isActive: user.is_active,
-        emailVerified: user.email_verified,
-        lastLogin: user.last_login_at,
+        franchise: user.franchise_id ? {
+          id: user.franchise_id,
+          name: user.franchise_name,
+          code: user.franchise_code
+        } : null,
+        permissions: req.user.permissions,
         createdAt: user.created_at
       }
-    });
-
-  } catch (error) {
-    next(error);
-  }
-});
+    }
+  });
+}));
 
 module.exports = router;

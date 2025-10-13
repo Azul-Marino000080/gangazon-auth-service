@@ -1,468 +1,228 @@
 const express = require('express');
-const router = express.Router();
-const db = require('../config/database');
+const bcrypt = require('bcryptjs');
+const { createClient } = require('../config/database');
+const { catchAsync, AppError } = require('../middleware/errorHandler');
+const { validate } = require('../middleware/validation');
+const { createUserSchema, updateUserSchema, assignPermissionSchema, revokePermissionSchema } = require('../validators/schemas');
+const { authenticateToken, requirePermission, requireSuperAdmin } = require('../middleware/auth');
+const { getOne, buildPaginatedQuery, applyFilters, createAuditLog, mapUser, paginatedResponse, checkExists } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
-const authUtils = require('../utils/auth');
-const { authenticateToken, requireRole, requireOrgAccess } = require('../middleware/auth');
-const { createUserSchema, updateUserSchema } = require('../validators/schemas');
-const { getGangazonOrganization } = require('../utils/permissions');
-const { v4: uuidv4 } = require('uuid');
-const { sendSuccess, sendError, sendNotFound, sendCreated, sendConflict, sendForbidden, sendPaginated } = require('../utils/responseHelpers');
-const { validate, validatePagination } = require('../middleware/validation');
-const { recordExists, getLocationWithFranchise } = require('../utils/queryHelpers');
-const { canManageUser } = require('../utils/accessControl');
 
-// Crear nuevo usuario (ADMIN o FRANCHISEE)
-// Este es el endpoint correcto para crear usuarios en el sistema
-// Requiere franchiseId excepto para rol admin
-router.post('/', authenticateToken, requireRole(['admin', 'franchisee']), validate(createUserSchema), async (req, res, next) => {
-  try {
-    const { email, password, firstName, lastName, role, franchiseId, locationId, startDate, phone } = req.body;
+const router = express.Router();
+router.use(authenticateToken);
 
-    // Verificar si el usuario ya existe
-    const exists = await recordExists('users', { email });
-    if (exists) {
-      return sendConflict(res, 'Ya existe un usuario con este email');
-    }
+/**
+ * POST /api/users
+ */
+router.post('/', requirePermission('users.create'), validate(createUserSchema), catchAsync(async (req, res) => {
+  const { email, password, firstName, lastName, phone, franchiseId } = req.body;
+  const supabase = createClient();
 
-    // Obtener organización Gangazon (única organización)
-    const organizationId = await getGangazonOrganization();
+  // Verificar email único
+  await checkExists('users', { email: email.toLowerCase() }, 'El email ya está registrado');
 
-    // Si se proporciona franchiseId, verificar que existe
-    if (franchiseId) {
-      const franchiseExists = await recordExists('franchises', { id: franchiseId });
-      if (!franchiseExists) {
-        return sendNotFound(res, 'Franquicia');
-      }
-
-      // Si el usuario es franchisee, verificar permisos
-      if (req.user.role === 'franchisee') {
-        const { data: userFranchises } = await db.getClient()
-          .from('franchises')
-          .select('id')
-          .eq('franchisee_email', req.user.email);
-
-        const franchiseIds = (userFranchises || []).map(f => f.id);
-        if (!franchiseIds.includes(franchiseId)) {
-          return sendForbidden(res, 'No tienes permisos para crear usuarios en esta franquicia');
-        }
-      }
-    }
-
-    // Si se proporciona locationId, verificar que existe y pertenece a la franquicia
-    let locationData = null;
-    if (locationId) {
-      locationData = await getLocationWithFranchise(locationId);
-      if (!locationData) {
-        return sendNotFound(res, 'Local');
-      }
-
-      if (franchiseId && locationData.franchise_id !== franchiseId) {
-        return sendError(res, 'Local inválido', 'El local no pertenece a la franquicia especificada', 400);
-      }
-    }
-
-    // Hash de la contraseña
-    const hashedPassword = await authUtils.hashPassword(password);
-
-    // Crear usuario
-    const { data: user, error: userError } = await db.getClient()
-      .from('users')
-      .insert({
-        id: uuidv4(),
-        email,
-        password_hash: hashedPassword,
-        first_name: firstName,
-        last_name: lastName,
-        organization_id: organizationId,
-        role: role || 'employee',
-        phone,
-        is_active: true,
-        email_verified: false,
-        created_at: new Date().toISOString()
-      })
-      .select('id, email, first_name, last_name, role, organization_id, is_active, created_at')
-      .single();
-
-    if (userError) {
-      logger.error('Error creando usuario:', userError);
-      return sendError(res, 'Error creando usuario', 'No se pudo crear el usuario', 500);
-    }
-
-    // Crear asignación automática si se proporcionó locationId
-    let assignment = null;
-    if (locationId && ['manager', 'supervisor', 'employee', 'viewer'].includes(role)) {
-      const { data: newAssignment, error: assignmentError } = await db.getClient()
-        .from('employee_assignments')
-        .insert({
-          id: uuidv4(),
-          user_id: user.id,
-          location_id: locationId,
-          role_at_location: role === 'manager' ? 'manager' : role === 'supervisor' ? 'supervisor' : 'employee',
-          start_date: startDate || new Date().toISOString().split('T')[0],
-          shift_type: 'full_time',
-          assigned_by: req.user.id,
-          is_active: true,
-          created_at: new Date().toISOString()
-        })
-        .select('id, location_id, role_at_location, start_date')
-        .single();
-
-      if (!assignmentError && newAssignment) {
-        assignment = {
-          id: newAssignment.id,
-          locationId: newAssignment.location_id,
-          locationName: locationData?.name,
-          roleAtLocation: newAssignment.role_at_location,
-          startDate: newAssignment.start_date
-        };
-      }
-    }
-
-    logger.info(`Usuario creado: ${email} por ${req.user.email}`);
-
-    let note = null;
-    if (!assignment) {
-      if (!franchiseId) {
-        note = 'Usuario admin creado sin asignación de franquicia';
-      } else if (!locationId) {
-        note = 'Usuario creado. Asígnalo a un local específico vía POST /api/assignments';
-      }
-    }
-
-    return sendCreated(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        isActive: user.is_active,
-        createdAt: user.created_at
-      },
-      assignment,
-      note
-    }, assignment ? 'Usuario creado y asignado exitosamente' : 'Usuario creado exitosamente');
-
-  } catch (error) {
-    next(error);
+  // Verificar franquicia si se proporciona
+  if (franchiseId) {
+    await getOne('franchises', { id: franchiseId }, 'Franquicia no encontrada');
   }
-});
 
-// Obtener perfil del usuario actual
-router.get('/me', authenticateToken, async (req, res, next) => {
-  try {
-    const { data: user, error } = await db.getClient()
-      .from('users')
-      .select(`
-        id, 
-        email, 
-        first_name, 
-        last_name, 
-        role, 
-        organization_id,
-        is_active,
-        email_verified,
-        created_at,
-        last_login_at,
-        organizations(name, description)
-      `)
-      .eq('id', req.user.id)
-      .single();
+  // Crear usuario
+  const { data: newUser, error } = await supabase.from('users').insert({
+    email: email.toLowerCase(),
+    password_hash: await bcrypt.hash(password, 12),
+    first_name: firstName,
+    last_name: lastName,
+    phone: phone || null,
+    franchise_id: franchiseId || null
+  }).select().single();
 
-    if (error || !user) {
-      return sendNotFound(res, 'Usuario');
+  if (error) throw new AppError('Error al crear usuario', 500);
+
+  await createAuditLog({
+    userId: req.user.id,
+    action: 'user_created',
+    ipAddress: req.ip,
+    details: { newUserId: newUser.id, email: newUser.email }
+  });
+
+  logger.info(`Usuario creado: ${newUser.email} por ${req.user.email}`);
+  res.status(201).json({ success: true, data: { user: mapUser(newUser) } });
+}));
+
+/**
+ * GET /api/users
+ */
+router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => {
+  const { page = 1, limit = 20, franchiseId, search, isActive } = req.query;
+  let query = buildPaginatedQuery('v_users_with_franchises', { page, limit });
+
+  if (franchiseId) query = query.eq('franchise_id', franchiseId);
+  if (search) query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
+  if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
+
+  query = query.order('created_at', { ascending: false });
+  const { data: users, count, error } = await query;
+
+  if (error) throw new AppError('Error al obtener usuarios', 500);
+
+  res.json({ success: true, data: paginatedResponse(users.map(mapUser), count, page, limit) });
+}));
+
+/**
+ * GET /api/users/:id
+ */
+router.get('/:id', requirePermission('users.view'), catchAsync(async (req, res) => {
+  const user = await getOne('v_users_with_franchises', { id: req.params.id }, 'Usuario no encontrado');
+  res.json({ success: true, data: { user: mapUser(user) } });
+}));
+
+/**
+ * PUT /api/users/:id
+ */
+router.put('/:id', requirePermission('users.edit'), validate(updateUserSchema), catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { firstName, lastName, phone, isActive } = req.body;
+  const supabase = createClient();
+
+  const existingUser = await getOne('users', { id }, 'Usuario no encontrado');
+
+  const updateData = {};
+  if (firstName !== undefined) updateData.first_name = firstName;
+  if (lastName !== undefined) updateData.last_name = lastName;
+  if (phone !== undefined) updateData.phone = phone;
+  if (isActive !== undefined) updateData.is_active = isActive;
+
+  const { data: updatedUser, error } = await supabase.from('users').update(updateData).eq('id', id).select().single();
+  if (error) throw new AppError('Error al actualizar usuario', 500);
+
+  await createAuditLog({ userId: req.user.id, action: 'user_updated', ipAddress: req.ip, details: { updatedUserId: id, changes: updateData } });
+
+  logger.info(`Usuario actualizado: ${existingUser.email} por ${req.user.email}`);
+  res.json({ success: true, data: { user: mapUser(updatedUser) } });
+}));
+
+/**
+ * DELETE /api/users/:id
+ */
+router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
+  const { id } = req.params;
+  if (id === req.user.id) throw new AppError('No puedes eliminar tu propio usuario', 400);
+
+  const supabase = createClient();
+  const existingUser = await getOne('users', { id }, 'Usuario no encontrado');
+
+  const { error } = await supabase.from('users').delete().eq('id', id);
+  if (error) throw new AppError('Error al eliminar usuario', 500);
+
+  await createAuditLog({ userId: req.user.id, action: 'user_deleted', ipAddress: req.ip, details: { deletedUserId: id, deletedEmail: existingUser.email } });
+
+  logger.warn(`Usuario eliminado: ${existingUser.email} por ${req.user.email}`);
+  res.json({ success: true, message: 'Usuario eliminado correctamente' });
+}));
+
+/**
+ * GET /api/users/:id/permissions
+ */
+router.get('/:id/permissions', requirePermission('permissions.view'), catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { applicationId } = req.query;
+  const supabase = createClient();
+
+  let query = supabase
+    .from('v_user_permissions_by_app')
+    .select('permission_id, permission_code, permission_display_name, permission_category, application_id, application_name, application_code, assigned_at, expires_at, is_active')
+    .eq('user_id', id);
+  if (applicationId) query = query.eq('application_id', applicationId);
+
+  const { data: permissions, error } = await query;
+  if (error) throw new AppError('Error al obtener permisos', 500);
+
+  res.json({
+    success: true,
+    data: {
+      permissions: permissions.map(p => ({
+        permissionId: p.permission_id,
+        permissionCode: p.permission_code,
+        permissionName: p.permission_name,
+        category: p.category,
+        applicationId: p.application_id,
+        applicationName: p.application_name,
+        assignedAt: p.assigned_at,
+        expiresAt: p.expires_at
+      }))
     }
+  });
+}));
 
-    return sendSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        organization: user.organizations,
-        isActive: user.is_active,
-        emailVerified: user.email_verified,
-        createdAt: user.created_at,
-        lastLogin: user.last_login_at
-      }
-    });
+/**
+ * POST /api/users/:id/assign
+ */
+router.post('/:id/assign', requirePermission('permissions.assign'), validate(assignPermissionSchema), catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { applicationId, permissionId, expiresAt } = req.body;
+  const supabase = createClient();
 
-  } catch (error) {
-    next(error);
+  const user = await getOne('users', { id }, 'Usuario no encontrado');
+  const permission = await getOne('permissions', { id: permissionId, application_id: applicationId }, 'Permiso no encontrado o no pertenece a la aplicación');
+
+  // Validar que expiresAt sea una fecha futura (si se proporciona)
+  if (expiresAt) {
+    const expirationDate = new Date(expiresAt);
+    if (expirationDate <= new Date()) {
+      throw new AppError('La fecha de expiración debe ser futura', 400);
+    }
   }
-});
 
-// Actualizar perfil del usuario actual
-router.put('/me', authenticateToken, validate(updateUserSchema), async (req, res, next) => {
-  try {
-    const updateData = {};
-    if (req.body.firstName) updateData.first_name = req.body.firstName;
-    if (req.body.lastName) updateData.last_name = req.body.lastName;
-    if (req.body.email) updateData.email = req.body.email;
-    
-    updateData.updated_at = new Date().toISOString();
+  // Verificar si ya tiene el permiso
+  await checkExists('user_app_permissions', { user_id: id, application_id: applicationId, permission_id: permissionId }, 'El usuario ya tiene este permiso asignado');
 
-    const { data: user, error: updateError } = await db.getClient()
-      .from('users')
-      .update(updateData)
-      .eq('id', req.user.id)
-      .select('id, email, first_name, last_name, role, organization_id')
-      .single();
+  const { error } = await supabase.from('user_app_permissions').insert({
+    user_id: id,
+    application_id: applicationId,
+    permission_id: permissionId,
+    expires_at: expiresAt || null
+  });
 
-    if (updateError) {
-      return sendError(res, 'Error actualizando usuario', 'No se pudo actualizar el usuario', 500);
-    }
+  if (error) throw new AppError('Error al asignar permiso', 500);
 
-    logger.info(`Usuario actualizado: ${user.email}`);
+  await createAuditLog({
+    userId: req.user.id,
+    applicationId,
+    action: 'permission_assigned',
+    ipAddress: req.ip,
+    details: { targetUserId: id, targetUserEmail: user.email, permissionCode: permission.code, expiresAt }
+  });
 
-    return sendSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id
-      }
-    }, 'Perfil actualizado exitosamente');
+  logger.info(`Permiso ${permission.code} asignado a ${user.email} por ${req.user.email}`);
+  res.status(201).json({ success: true, message: 'Permiso asignado correctamente' });
+}));
 
-  } catch (error) {
-    next(error);
-  }
-});
+/**
+ * DELETE /api/users/:id/revoke
+ */
+router.delete('/:id/revoke', requirePermission('permissions.assign'), validate(revokePermissionSchema), catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { applicationId, permissionId } = req.body;
+  const supabase = createClient();
 
-// Listar usuarios (solo para admins)
-router.get('/', authenticateToken, requireRole(['admin']), validatePagination, async (req, res, next) => {
-  try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const search = req.query.search || '';
-    const role = req.query.role || '';
+  const user = await getOne('users', { id }, 'Usuario no encontrado');
+  const { data: permission } = await supabase.from('permissions').select('code').eq('id', permissionId).single();
 
-    const offset = (page - 1) * limit;
+  const { error } = await supabase.from('user_app_permissions').delete()
+    .eq('user_id', id).eq('application_id', applicationId).eq('permission_id', permissionId);
 
-    let query = db.getClient()
-      .from('users')
-      .select(`
-        id,
-        email,
-        first_name,
-        last_name,
-        role,
-        organization_id,
-        is_active,
-        email_verified,
-        created_at,
-        last_login_at,
-        organizations(name)
-      `, { count: 'exact' });
+  if (error) throw new AppError('Error al revocar permiso', 500);
 
-    query = query.eq('organization_id', req.user.organizationId);
+  await createAuditLog({
+    userId: req.user.id,
+    applicationId,
+    action: 'permission_revoked',
+    ipAddress: req.ip,
+    details: { targetUserId: id, targetUserEmail: user.email, permissionCode: permission?.code }
+  });
 
-    if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
-    }
-
-    if (role) {
-      query = query.eq('role', role);
-    }
-
-    const { data: users, error, count } = await query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (error) {
-      return sendError(res, 'Error obteniendo usuarios', 'No se pudieron obtener los usuarios', 500);
-    }
-
-    return sendPaginated(res, 
-      users.map(user => ({
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        organization: user.organizations,
-        isActive: user.is_active,
-        emailVerified: user.email_verified,
-        createdAt: user.created_at,
-        lastLogin: user.last_login_at
-      })),
-      count,
-      page,
-      limit,
-      'users'
-    );
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Obtener usuario por ID (solo para admins)
-router.get('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, async (req, res, next) => {
-  try {
-    const { userId } = req.params;
-
-    const { data: user, error } = await db.getClient()
-      .from('users')
-      .select(`
-        id,
-        email,
-        first_name,
-        last_name,
-        role,
-        organization_id,
-        is_active,
-        email_verified,
-        created_at,
-        last_login_at,
-        organizations(name, description)
-      `)
-      .eq('id', userId)
-      .eq('organization_id', req.user.organizationId)
-      .single();
-
-    if (error || !user) {
-      return sendNotFound(res, 'Usuario');
-    }
-
-    return sendSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        organization: user.organizations,
-        isActive: user.is_active,
-        emailVerified: user.email_verified,
-        createdAt: user.created_at,
-        lastLogin: user.last_login_at
-      }
-    });
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Actualizar usuario (solo para admins)
-router.put('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, validate(updateUserSchema), async (req, res, next) => {
-  try {
-    const { userId } = req.params;
-
-    const { data: existingUser, error: userError } = await db.getClient()
-      .from('users')
-      .select('id, organization_id, role')
-      .eq('id', userId)
-      .eq('organization_id', req.user.organizationId)
-      .single();
-
-    if (userError || !existingUser) {
-      return sendNotFound(res, 'Usuario');
-    }
-
-    // Validaciones de permisos para cambio de rol
-    if (req.body.role && req.body.role !== existingUser.role) {
-      if (!canManageUser(req.user, existingUser)) {
-        return sendForbidden(res, 'No puedes modificar usuarios con rol de admin');
-      }
-    }
-
-    const updateData = {};
-    if (req.body.firstName) updateData.first_name = req.body.firstName;
-    if (req.body.lastName) updateData.last_name = req.body.lastName;
-    if (req.body.email) updateData.email = req.body.email;
-    if (req.body.role) updateData.role = req.body.role;
-    if (req.body.isActive !== undefined) updateData.is_active = req.body.isActive;
-    
-    updateData.updated_at = new Date().toISOString();
-
-    const { data: user, error: updateError } = await db.getClient()
-      .from('users')
-      .update(updateData)
-      .eq('id', userId)
-      .select('id, email, first_name, last_name, role, organization_id, is_active')
-      .single();
-
-    if (updateError) {
-      return sendError(res, 'Error actualizando usuario', 'No se pudo actualizar el usuario', 500);
-    }
-
-    logger.info(`Usuario ${userId} actualizado por ${req.user.email}`);
-
-    return sendSuccess(res, {
-      user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        role: user.role,
-        organizationId: user.organization_id,
-        isActive: user.is_active
-      }
-    }, 'Usuario actualizado exitosamente');
-
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Desactivar usuario (solo para admins)
-router.delete('/:userId', authenticateToken, requireRole(['admin']), requireOrgAccess, async (req, res, next) => {
-  try {
-    const { userId } = req.params;
-
-    const { data: existingUser, error: userError } = await db.getClient()
-      .from('users')
-      .select('id, organization_id, role, email')
-      .eq('id', userId)
-      .eq('organization_id', req.user.organizationId)
-      .single();
-
-    if (userError || !existingUser) {
-      return sendNotFound(res, 'Usuario');
-    }
-
-    if (existingUser.id === req.user.id) {
-      return sendError(res, 'Operación no permitida', 'No puedes desactivar tu propia cuenta', 400);
-    }
-
-    if (!canManageUser(req.user, existingUser)) {
-      return sendForbidden(res, 'No puedes desactivar usuarios con rol de admin');
-    }
-
-    const { error: updateError } = await db.getClient()
-      .from('users')
-      .update({ 
-        is_active: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId);
-
-    if (updateError) {
-      return sendError(res, 'Error desactivando usuario', 'No se pudo desactivar el usuario', 500);
-    }
-
-    await db.getClient()
-      .from('refresh_tokens')
-      .delete()
-      .eq('user_id', userId);
-
-    logger.info(`Usuario ${existingUser.email} desactivado por ${req.user.email}`);
-
-    return sendSuccess(res, {}, 'Usuario desactivado exitosamente');
-
-  } catch (error) {
-    next(error);
-  }
-});
+  logger.info(`Permiso ${permission?.code} revocado de ${user.email} por ${req.user.email}`);
+  res.json({ success: true, message: 'Permiso revocado correctamente' });
+}));
 
 module.exports = router;

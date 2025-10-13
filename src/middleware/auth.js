@@ -1,230 +1,162 @@
-const authUtils = require('../utils/auth');
-const db = require('../config/database');
+const { verifyAccessToken } = require('../utils/jwt');
+const { createClient } = require('../config/database');
+const { AppError } = require('./errorHandler');
 const logger = require('../utils/logger');
 
-// Middleware para verificar JWT token
-const authenticateToken = async (req, res, next) => {
+/**
+ * Middleware para autenticar token JWT
+ */
+async function authenticateToken(req, res, next) {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authUtils.extractTokenFromHeader(authHeader);
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
     if (!token) {
-      return res.status(401).json({
-        error: 'Token requerido',
-        message: 'Se requiere un token de autenticación'
-      });
+      throw new AppError('Token no proporcionado', 401);
     }
 
-    const decoded = authUtils.verifyToken(token);
-    
-    // Verificar que el usuario aún existe y está activo
-    const { data: user, error } = await db.getClient()
+    const decoded = verifyAccessToken(token);
+    if (!decoded) {
+      throw new AppError('Token inválido o expirado', 401);
+    }
+
+    // Verificar que el usuario existe y está activo
+    const supabase = createClient();
+    const { data: user, error } = await supabase
       .from('users')
-      .select('id, email, is_active, organization_id, role')
+      .select('id, email, first_name, last_name, franchise_id, is_active')
       .eq('id', decoded.userId)
-      .eq('is_active', true)
       .single();
 
     if (error || !user) {
-      return res.status(401).json({
-        error: 'Usuario no válido',
-        message: 'El usuario no existe o está inactivo'
-      });
+      throw new AppError('Usuario no encontrado', 404);
     }
 
+    if (!user.is_active) {
+      throw new AppError('Usuario desactivado', 403);
+    }
+
+    // Agregar información al request
     req.user = {
-      id: user.id,
-      email: user.email,
-      organizationId: user.organization_id,
-      role: user.role
+      ...user,
+      permissions: decoded.permissions || []
     };
 
     next();
   } catch (error) {
-    logger.error('Error en autenticación:', error);
-    return res.status(401).json({
-      error: 'Token inválido',
-      message: 'El token de autenticación no es válido'
-    });
+    if (error instanceof AppError) {
+      next(error);
+    } else {
+      logger.error('Error en authenticateToken:', error);
+      next(new AppError('Error de autenticación', 401));
+    }
   }
-};
+}
 
-// Middleware para verificar roles específicos
-const requireRole = (allowedRoles) => {
+/**
+ * Middleware para verificar permiso específico
+ * @param {string|string[]} requiredPermission - Permiso o array de permisos requeridos
+ */
+function requirePermission(requiredPermission) {
   return (req, res, next) => {
+    try {
+      if (!req.user) {
+        throw new AppError('Usuario no autenticado', 401);
+      }
+
+      const userPermissions = req.user.permissions || [];
+      
+      // Si tiene super_admin, puede todo
+      if (userPermissions.includes('super_admin')) {
+        return next();
+      }
+
+      // Verificar si tiene el permiso requerido
+      const permissions = Array.isArray(requiredPermission) 
+        ? requiredPermission 
+        : [requiredPermission];
+
+      const hasPermission = permissions.some(perm => 
+        userPermissions.includes(perm)
+      );
+
+      if (!hasPermission) {
+        throw new AppError(
+          `Permiso denegado. Se requiere: ${permissions.join(' o ')}`,
+          403
+        );
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+/**
+ * Middleware para verificar que el usuario es super_admin
+ */
+function requireSuperAdmin(req, res, next) {
+  try {
     if (!req.user) {
-      return res.status(401).json({
-        error: 'No autenticado',
-        message: 'Se requiere autenticación'
-      });
+      throw new AppError('Usuario no autenticado', 401);
     }
 
-    const userRole = req.user.role;
+    const userPermissions = req.user.permissions || [];
     
-    if (!allowedRoles.includes(userRole)) {
-      return res.status(403).json({
-        error: 'Acceso denegado',
-        message: `Se requiere uno de los siguientes roles: ${allowedRoles.join(', ')}`
-      });
+    if (!userPermissions.includes('super_admin')) {
+      throw new AppError(
+        'Acceso denegado. Solo super_admin puede realizar esta acción',
+        403
+      );
     }
 
     next();
-  };
-};
-
-// Middleware mejorado para verificar permisos de organización/franquicia
-const requireOrgAccess = (req, res, next) => {
-  const requestedOrgId = req.params.organizationId || req.body.organizationId;
-  const requestedFranchiseId = req.params.franchiseId || req.body.franchiseId;
-  
-  // Admin tiene acceso total
-  if (req.user.role === 'admin') {
-    return next();
+  } catch (error) {
+    next(error);
   }
-  
-  // Verificar acceso a organización específica
-  if (requestedOrgId && req.user.organizationId !== requestedOrgId) {
-    return res.status(403).json({
-      error: 'Acceso denegado',
-      message: 'No tienes permisos para acceder a esta organización'
-    });
-  }
+}
 
-  // Para franquiciados, verificar que la franquicia pertenece a su organización
-  if (requestedFranchiseId && req.user.role === 'franchisee') {
-    // Esto se verificará en el endpoint específico con query a DB
-    // Aquí solo validamos que tiene un rol apropiado
-  }
-
-  next();
-};
-
-// Middleware para verificar acceso contextual a locales
-const requireLocationAccess = async (req, res, next) => {
+/**
+ * Middleware opcional de autenticación (no falla si no hay token)
+ */
+async function optionalAuth(req, res, next) {
   try {
-    const locationId = req.params.locationId || req.body.locationId;
-    
-    if (!locationId) {
-      return next(); // Si no hay locationId, continuar
-    }
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-    // Admin tiene acceso total
-    if (req.user.role === 'admin') {
+    if (!token) {
       return next();
     }
 
-    const db = require('../config/database');
-
-    // Verificar acceso según el rol
-    if (req.user.role === 'franchisee') {
-      // Verificar que el local pertenece a una franquicia de su organización
-      const { data: location } = await db.getClient()
-        .from('locations')
-        .select('franchise_id')
-        .eq('id', locationId)
-        .in('franchise_id',
-          db.getClient()
-            .from('franchises')
-            .select('id')
-            .eq('organization_id', req.user.organizationId)
-        )
+    const decoded = verifyAccessToken(token);
+    if (decoded) {
+      const supabase = createClient();
+      const { data: user } = await supabase
+        .from('users')
+        .select('id, email, first_name, last_name, franchise_id, is_active')
+        .eq('id', decoded.userId)
         .single();
 
-      if (!location) {
-        return res.status(403).json({
-          error: 'Acceso denegado',
-          message: 'No tienes permisos para acceder a este local'
-        });
-      }
-    } else if (['manager', 'supervisor'].includes(req.user.role)) {
-      // Verificar que es manager o supervisor del local
-      const { data: location } = await db.getClient()
-        .from('locations')
-        .select('id')
-        .eq('id', locationId)
-        .eq('manager_id', req.user.id)
-        .single();
-
-      if (!location) {
-        return res.status(403).json({
-          error: 'Acceso denegado',
-          message: 'No eres manager/supervisor de este local'
-        });
-      }
-    } else if (req.user.role === 'employee') {
-      // Verificar que está asignado al local
-      const { data: assignment } = await db.getClient()
-        .from('employee_assignments')
-        .select('id')
-        .eq('user_id', req.user.id)
-        .eq('location_id', locationId)
-        .eq('is_active', true)
-        .single();
-
-      if (!assignment) {
-        return res.status(403).json({
-          error: 'Acceso denegado',
-          message: 'No estás asignado a este local'
-        });
+      if (user && user.is_active) {
+        req.user = {
+          ...user,
+          permissions: decoded.permissions || []
+        };
       }
     }
 
     next();
   } catch (error) {
-    logger.error('Error verificando acceso a local:', error);
-    res.status(500).json({
-      error: 'Error de autorización',
-      message: 'Error verificando permisos de local'
-    });
-  }
-};
-
-// Middleware para API Key (para aplicaciones)
-const authenticateApiKey = async (req, res, next) => {
-  try {
-    const apiKey = req.headers['x-api-key'];
-
-    if (!apiKey) {
-      return res.status(401).json({
-        error: 'API Key requerida',
-        message: 'Se requiere una API Key válida'
-      });
-    }
-
-    const { data: app, error } = await db.getClient()
-      .from('applications')
-      .select('id, name, organization_id, is_active')
-      .eq('api_key', apiKey)
-      .eq('is_active', true)
-      .single();
-
-    if (error || !app) {
-      return res.status(401).json({
-        error: 'API Key inválida',
-        message: 'La API Key no es válida o está inactiva'
-      });
-    }
-
-    req.application = {
-      id: app.id,
-      name: app.name,
-      organizationId: app.organization_id
-    };
-
+    logger.warn('Error en optionalAuth:', error);
     next();
-  } catch (error) {
-    logger.error('Error en autenticación de API Key:', error);
-    return res.status(401).json({
-      error: 'Error de autenticación',
-      message: 'Error verificando la API Key'
-    });
   }
-};
+}
 
 module.exports = {
   authenticateToken,
-  requireRole,
-  requireOrgAccess,
-  requireLocationAccess,
-  authenticateApiKey
+  requirePermission,
+  requireSuperAdmin,
+  optionalAuth
 };

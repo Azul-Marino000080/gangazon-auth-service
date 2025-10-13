@@ -4,118 +4,126 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const logger = require('./utils/logger');
-const errorHandler = require('./middleware/errorHandler');
+const { errorHandler } = require('./middleware/errorHandler');
 
 // Importar rutas
 const authRoutes = require('./routes/auth');
-const userRoutes = require('./routes/users');
-const roleRoutes = require('./routes/roles');
-const franchiseRoutes = require('./routes/franchises');
-const locationRoutes = require('./routes/locations');
-const assignmentRoutes = require('./routes/assignments');
-const checkinRoutes = require('./routes/checkins');
-const emergencyRoutes = require('./routes/emergency');
+const usersRoutes = require('./routes/users');
+const applicationsRoutes = require('./routes/applications');
+const permissionsRoutes = require('./routes/permissions');
+const franchisesRoutes = require('./routes/franchises');
+const sessionsRoutes = require('./routes/sessions');
+const auditRoutes = require('./routes/audit');
+const setupRoutes = require('./routes/setup');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 
-// Security middleware
+// =====================================================
+// MIDDLEWARE DE SEGURIDAD
+// =====================================================
+
+// Helmet - Headers de seguridad
 app.use(helmet());
 
-// CORS configuration
-const corsOptions = {
-  origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
-};
-app.use(cors(corsOptions));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
-  message: {
-    error: 'Demasiadas peticiones desde esta IP, intenta de nuevo más tarde.'
+// CORS - Configuración de orígenes permitidos
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
   },
+  credentials: true
+}));
+
+// Rate limiting - Límite de peticiones
+const limiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutos
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  message: 'Demasiadas peticiones desde esta IP, por favor intenta de nuevo más tarde',
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api/', limiter);
+app.use(limiter);
 
-// Body parsing middleware
+// =====================================================
+// MIDDLEWARE GENERAL
+// =====================================================
+
+// Body parser
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check endpoint
-app.get('/health', async (req, res) => {
-  try {
-    // Verificar conexión a la base de datos
-    const dbService = require('./config/database');
-    const isConnected = await dbService.testConnection();
-    
-    res.status(200).json({
-      status: 'OK',
-      timestamp: new Date().toISOString(),
-      service: 'Gangazon Auth Service',
-      version: '1.0.0',
-      database: isConnected ? 'Connected' : 'Disconnected',
-      environment: process.env.NODE_ENV || 'development'
-    });
-  } catch (error) {
-    res.status(503).json({
-      status: 'ERROR',
-      timestamp: new Date().toISOString(),
-      service: 'Gangazon Auth Service',
-      error: 'Database connection failed'
-    });
-  }
+// Logger de peticiones
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.path}`, {
+    ip: req.ip,
+    userAgent: req.headers['user-agent']
+  });
+  next();
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/roles', roleRoutes);
-app.use('/api/franchises', franchiseRoutes);
-app.use('/api/locations', locationRoutes);
-app.use('/api/assignments', assignmentRoutes);
-app.use('/api/checkins', checkinRoutes);
-app.use('/api/emergency', emergencyRoutes);
+// =====================================================
+// RUTAS
+// =====================================================
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Endpoint no encontrado',
-    path: req.originalUrl,
-    method: req.method
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV
   });
 });
 
-// Error handling middleware
+// API routes
+app.use('/api/setup', setupRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/applications', applicationsRoutes);
+app.use('/api/permissions', permissionsRoutes);
+app.use('/api/franchises', franchisesRoutes);
+app.use('/api/sessions', sessionsRoutes);
+app.use('/api/audit', auditRoutes);
+
+// Ruta no encontrada
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Ruta no encontrada',
+    message: `La ruta ${req.originalUrl} no existe en este servidor`
+  });
+});
+
+// =====================================================
+// MANEJADOR DE ERRORES
+// =====================================================
+
 app.use(errorHandler);
 
-// Start server
-const server = app.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Gangazon Auth Service ejecutándose en puerto ${PORT}`);
-  logger.info(`📊 Health check disponible en http://localhost:${PORT}/health`);
-  logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`🔒 CORS Origins: ${process.env.CORS_ORIGINS || 'localhost:3000'}`);
+// =====================================================
+// INICIAR SERVIDOR
+// =====================================================
+
+app.listen(PORT, () => {
+  logger.info(`🚀 Gangazon Auth Service v2.0 iniciado`);
+  logger.info(`📡 Servidor escuchando en puerto ${PORT}`);
+  logger.info(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
+  logger.info(`🔒 CORS habilitado para: ${allowedOrigins.join(', ')}`);
 });
 
-server.on('error', (error) => {
-  logger.error('❌ Error starting server:', error);
+// Manejo de errores no capturados
+process.on('unhandledRejection', (error) => {
+  logger.error('Unhandled Rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
   process.exit(1);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('🔄 Cerrando servidor...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  logger.info('🔄 Cerrando servidor...');
-  process.exit(0);
 });
 
 module.exports = app;

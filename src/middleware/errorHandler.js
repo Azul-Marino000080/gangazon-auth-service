@@ -1,60 +1,65 @@
 const logger = require('../utils/logger');
 
+/**
+ * Middleware global de manejo de errores
+ */
 const errorHandler = (err, req, res, next) => {
-  logger.error('Error en la aplicación:', {
+  // Log del error
+  logger.error('Error capturado:', {
     message: err.message,
     stack: err.stack,
-    url: req.url,
+    path: req.path,
     method: req.method,
-    ip: req.ip,
-    userAgent: req.get('User-Agent')
+    ip: req.ip
   });
 
-  // Errores de validación de Joi
-  if (err.isJoi) {
-    return res.status(400).json({
-      error: 'Datos de entrada inválidos',
-      details: err.details.map(detail => ({
-        field: detail.path.join('.'),
-        message: detail.message
-      }))
-    });
+  // Determinar código de estado
+  const statusCode = err.statusCode || 500;
+
+  // Determinar mensaje de error
+  let errorMessage = err.message || 'Error interno del servidor';
+  
+  // En producción, no exponer detalles internos
+  if (process.env.NODE_ENV === 'production' && statusCode === 500) {
+    errorMessage = 'Error interno del servidor';
   }
 
-  // Errores de JWT
-  if (err.name === 'JsonWebTokenError') {
-    return res.status(401).json({
-      error: 'Token inválido',
-      message: 'El token de autenticación no es válido'
-    });
-  }
-
-  if (err.name === 'TokenExpiredError') {
-    return res.status(401).json({
-      error: 'Token expirado',
-      message: 'El token de autenticación ha expirado'
-    });
-  }
-
-  // Errores de Supabase
-  if (err.code && err.code.startsWith('23')) {
-    return res.status(409).json({
-      error: 'Conflicto de datos',
-      message: 'Ya existe un registro con estos datos'
-    });
-  }
-
-  // Error por defecto
-  const statusCode = err.statusCode || err.status || 500;
-  const message = process.env.NODE_ENV === 'production' 
-    ? 'Error interno del servidor' 
-    : err.message;
-
+  // Respuesta de error
   res.status(statusCode).json({
-    error: 'Error del servidor',
-    message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    success: false,
+    error: err.name || 'Error',
+    message: errorMessage,
+    ...(process.env.NODE_ENV === 'development' && {
+      stack: err.stack,
+      details: err.details
+    })
   });
 };
 
-module.exports = errorHandler;
+/**
+ * Clase para errores personalizados
+ */
+class AppError extends Error {
+  constructor(message, statusCode = 500, details = null) {
+    super(message);
+    this.statusCode = statusCode;
+    this.details = details;
+    this.name = this.constructor.name;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+
+/**
+ * Wrapper para funciones async para capturar errores
+ */
+const catchAsync = (fn) => {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
+
+module.exports = {
+  errorHandler,
+  AppError,
+  catchAsync
+};
