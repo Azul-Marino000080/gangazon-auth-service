@@ -1,0 +1,1329 @@
+{
+	"info": {
+		"_postman_id": "gangazon-auth-v2",
+		"name": "Gangazon Auth Service v2.0",
+		"description": "Sistema de autenticación centralizado multi-aplicación para Gangazon.\n\n## Características\n- Autenticación JWT con access y refresh tokens\n- Sistema de permisos por aplicación\n- Gestión de franquicias\n- Control de sesiones\n- Auditoría completa\n\n## Flujo de autenticación\n1. Login con email/password y applicationCode\n2. Recibir accessToken y refreshToken\n3. Usar accessToken en header Authorization: Bearer {token}\n4. Refrescar token cuando expire\n\n## Variables necesarias\n- `base_url`: URL del servidor (ej: http://localhost:10000)\n- `access_token`: Se guarda automáticamente tras login\n- `refresh_token`: Se guarda automáticamente tras login\n- `setup_token`: Token para crear super admin inicial",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Setup",
+			"item": [
+				{
+					"name": "Check Setup Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/setup/status",
+							"host": ["{{base_url}}"],
+							"path": ["api", "setup", "status"]
+						},
+						"description": "Verifica si el setup está habilitado y si ya existe un super admin en el sistema."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Super Admin",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    console.log('Super admin creado exitosamente:', response.data.user.email);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "x-setup-token",
+								"value": "{{setup_token}}",
+								"type": "text",
+								"description": "Token de setup (desde .env)"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@gangazon.com\",\n  \"password\": \"Admin123!Secure\",\n  \"firstName\": \"Admin\",\n  \"lastName\": \"Gangazon\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/setup/super-admin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "setup", "super-admin"]
+						},
+						"description": "Crea el primer super admin del sistema. Solo funciona si:\n- ALLOW_SETUP=true en .env\n- x-setup-token es válido\n- No existe otro super admin\n\nEl super admin recibe automáticamente todos los permisos."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para configuración inicial del sistema"
+		},
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('access_token', response.data.tokens.accessToken);",
+									"    pm.environment.set('refresh_token', response.data.tokens.refreshToken);",
+									"    console.log('Login exitoso. Tokens guardados.');",
+									"    console.log('Permisos:', response.data.permissions);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"admin@gangazon.com\",\n  \"password\": \"Admin123!Secure\",\n  \"applicationCode\": \"ADMIN_PANEL\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "login"]
+						},
+						"description": "Inicia sesión con email, password y código de aplicación.\n\nRetorna:\n- accessToken (30 min)\n- refreshToken (7 días)\n- Permisos del usuario en esa aplicación\n- URL de redirección"
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('access_token', response.data.accessToken);",
+									"    console.log('Token refrescado exitosamente');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\",\n  \"applicationCode\": \"ADMIN_PANEL\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/refresh",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "refresh"]
+						},
+						"description": "Renueva el access token usando el refresh token.\n\nValidaciones:\n- Refresh token válido y no expirado\n- Aplicación activa\n- Usuario activo\n- Permisos actualizados"
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refresh_token}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/logout",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "logout"]
+						},
+						"description": "Cierra la sesión del usuario.\n\nAcciones:\n- Revoca el refresh token\n- Marca las sesiones como terminadas\n- Registra auditoría"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Token",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/auth/verify",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "verify"]
+						},
+						"description": "Verifica si el token actual es válido.\n\nRetorna información del usuario y permisos si el token es válido."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/auth/me",
+							"host": ["{{base_url}}"],
+							"path": ["api", "auth", "me"]
+						},
+						"description": "Obtiene información detallada del usuario autenticado actual.\n\nIncluye:\n- Datos del usuario\n- Franquicia asociada\n- Permisos en la aplicación actual"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints de autenticación y gestión de sesiones"
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "List Users",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/users?page=1&limit=10&search=&franchiseId=&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Buscar por nombre o email"
+								},
+								{
+									"key": "franchiseId",
+									"value": "",
+									"description": "Filtrar por franquicia"
+								},
+								{
+									"key": "isActive",
+									"value": "true",
+									"description": "Filtrar por estado activo"
+								}
+							]
+						},
+						"description": "Lista todos los usuarios con paginación y filtros.\n\nRequiere permiso: users.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Obtiene detalles de un usuario específico.\n\nRequiere permiso: users.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Create User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"nuevo@usuario.com\",\n  \"password\": \"Password123!\",\n  \"firstName\": \"Nombre\",\n  \"lastName\": \"Apellido\",\n  \"phone\": \"+34600123456\",\n  \"franchiseId\": \"00000000-0000-0000-0000-000000000001\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users"]
+						},
+						"description": "Crea un nuevo usuario.\n\nRequiere permiso: users.create\n\nLa contraseña se hashea con bcrypt (12 rounds)."
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"firstName\": \"Nombre Actualizado\",\n  \"lastName\": \"Apellido Actualizado\",\n  \"phone\": \"+34600999888\",\n  \"isActive\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Actualiza datos de un usuario.\n\nRequiere permiso: users.edit\n\nNo se puede cambiar email ni password por aquí."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Elimina un usuario del sistema.\n\nRequiere permiso: super_admin\n\nEliminación permanente (no soft delete)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Permissions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/users/:id/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id", "permissions"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Lista todos los permisos asignados a un usuario en todas las aplicaciones.\n\nRequiere permiso: permissions.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Permission to User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"applicationId\": \"00000000-0000-0000-0000-000000000001\",\n  \"permissionId\": \"00000000-0000-0000-0000-000000000001\",\n  \"expiresAt\": null\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/:id/assign",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id", "assign"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Asigna un permiso a un usuario en una aplicación específica.\n\nRequiere permiso: permissions.assign\n\nSi expiresAt es null, el permiso no expira."
+					},
+					"response": []
+				},
+				{
+					"name": "Revoke Permission from User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"applicationId\": \"00000000-0000-0000-0000-000000000001\",\n  \"permissionId\": \"00000000-0000-0000-0000-000000000001\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/users/:id/revoke",
+							"host": ["{{base_url}}"],
+							"path": ["api", "users", ":id", "revoke"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Revoca un permiso de un usuario.\n\nRequiere permiso: permissions.assign"
+					},
+					"response": []
+				}
+			],
+			"description": "Gestión de usuarios y asignación de permisos"
+		},
+		{
+			"name": "Franchises",
+			"item": [
+				{
+					"name": "List Franchises",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/franchises?page=1&limit=10&search=&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "franchises"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Lista todas las franquicias.\n\nRequiere permiso: franchises.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Franchise by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/franchises/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "franchises", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Obtiene detalles de una franquicia.\n\nRequiere permiso: franchises.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Franchise",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Franquicia Madrid Centro\",\n  \"code\": \"MADRID_01\",\n  \"email\": \"madrid@gangazon.com\",\n  \"phone\": \"+34911234567\",\n  \"address\": \"Calle Gran Vía 28\",\n  \"city\": \"Madrid\",\n  \"postalCode\": \"28013\",\n  \"contactPerson\": \"Juan Pérez\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/franchises",
+							"host": ["{{base_url}}"],
+							"path": ["api", "franchises"]
+						},
+						"description": "Crea una nueva franquicia.\n\nRequiere permiso: franchises.create\n\nEl código debe ser único."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Franchise",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Franquicia Madrid Centro - Actualizada\",\n  \"phone\": \"+34911999888\",\n  \"isActive\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/franchises/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "franchises", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Actualiza una franquicia.\n\nRequiere permiso: franchises.edit\n\nNo se puede cambiar el código."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Franchise",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/franchises/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "franchises", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Elimina una franquicia.\n\nRequiere permiso: super_admin\n\nProtección: No se puede eliminar GANGAZON_HQ"
+					},
+					"response": []
+				}
+			],
+			"description": "Gestión de franquicias"
+		},
+		{
+			"name": "Applications",
+			"item": [
+				{
+					"name": "List Applications",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/applications?page=1&limit=10&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "applications"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Lista aplicaciones registradas.\n\nRequiere permiso: applications.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Application by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/applications/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "applications", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Obtiene detalles de una aplicación.\n\nRequiere permiso: applications.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Application",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"App Fichajes\",\n  \"code\": \"FICHAJES_APP\",\n  \"description\": \"Aplicación de control de fichajes\",\n  \"redirectUrl\": \"http://localhost:3001\",\n  \"allowedOrigins\": [\"http://localhost:3001\", \"https://fichajes.gangazon.com\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/applications",
+							"host": ["{{base_url}}"],
+							"path": ["api", "applications"]
+						},
+						"description": "Registra una nueva aplicación.\n\nRequiere permiso: super_admin\n\nGenera automáticamente un API key único."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Application",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"App Fichajes v2\",\n  \"description\": \"Aplicación de control de fichajes actualizada\",\n  \"isActive\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/applications/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "applications", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Actualiza una aplicación.\n\nRequiere permiso: super_admin"
+					},
+					"response": []
+				},
+				{
+					"name": "Regenerate API Key",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/applications/:id/regenerate-key",
+							"host": ["{{base_url}}"],
+							"path": ["api", "applications", ":id", "regenerate-key"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Regenera la API key de una aplicación.\n\nRequiere permiso: super_admin\n\nInvalida la API key anterior."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Application",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/applications/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "applications", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Elimina una aplicación.\n\nRequiere permiso: super_admin\n\nProtección: No se puede eliminar ADMIN_PANEL"
+					},
+					"response": []
+				}
+			],
+			"description": "Gestión de aplicaciones registradas"
+		},
+		{
+			"name": "Permissions",
+			"item": [
+				{
+					"name": "List Permissions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/permissions?page=1&limit=50&applicationId=&category=&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "permissions"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "applicationId",
+									"value": ""
+								},
+								{
+									"key": "category",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Lista todos los permisos del sistema.\n\nRequiere permiso: permissions.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Permission by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/permissions/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "permissions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Obtiene detalles de un permiso.\n\nRequiere permiso: permissions.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Permission",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"application_id\": \"00000000-0000-0000-0000-000000000001\",\n  \"code\": \"reports.export\",\n  \"display_name\": \"Exportar reportes\",\n  \"description\": \"Permite exportar reportes en formato Excel/PDF\",\n  \"category\": \"reports\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/permissions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "permissions"]
+						},
+						"description": "Crea un nuevo permiso.\n\nRequiere permiso: permissions.create\n\nTrigger: Auto-asigna a usuarios con super_admin"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Permission",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"display_name\": \"Exportar todos los reportes\",\n  \"description\": \"Permite exportar reportes en formato Excel, PDF y CSV\",\n  \"is_active\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/permissions/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "permissions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Actualiza un permiso.\n\nRequiere permiso: permissions.edit"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Permission",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/permissions/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "permissions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Elimina un permiso.\n\nRequiere permiso: super_admin\n\nProtección: No se puede eliminar super_admin"
+					},
+					"response": []
+				}
+			],
+			"description": "Gestión de permisos del sistema"
+		},
+		{
+			"name": "Sessions",
+			"item": [
+				{
+					"name": "List Sessions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions?page=1&limit=20&userId=&applicationId=&isActive=true",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "userId",
+									"value": ""
+								},
+								{
+									"key": "applicationId",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Lista sesiones activas.\n\nRequiere permiso: sessions.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Session by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Obtiene detalles de una sesión.\n\nRequiere permiso: sessions.view"
+					},
+					"response": []
+				},
+				{
+					"name": "End Session",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Cierra una sesión específica.\n\nRequiere permiso: super_admin\n\nÚtil para forzar logout de usuarios."
+					},
+					"response": []
+				}
+			],
+			"description": "Control de sesiones activas"
+		},
+		{
+			"name": "Audit",
+			"item": [
+				{
+					"name": "List Audit Logs",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/audit?page=1&limit=50&userId=&applicationId=&action=&startDate=&endDate=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "audit"],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								},
+								{
+									"key": "userId",
+									"value": ""
+								},
+								{
+									"key": "applicationId",
+									"value": ""
+								},
+								{
+									"key": "action",
+									"value": "",
+									"description": "login, logout, create, update, delete, etc"
+								},
+								{
+									"key": "startDate",
+									"value": "",
+									"description": "ISO 8601 format"
+								},
+								{
+									"key": "endDate",
+									"value": "",
+									"description": "ISO 8601 format"
+								}
+							]
+						},
+						"description": "Lista registros de auditoría.\n\nRequiere permiso: audit.view\n\nSoporta filtros por usuario, aplicación, acción y rango de fechas."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Audit Log by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/audit/:id",
+							"host": ["{{base_url}}"],
+							"path": ["api", "audit", ":id"],
+							"variable": [
+								{
+									"key": "id",
+									"value": ""
+								}
+							]
+						},
+						"description": "Obtiene detalles de un registro de auditoría.\n\nRequiere permiso: audit.view"
+					},
+					"response": []
+				}
+			],
+			"description": "Consulta de logs de auditoría"
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	]
+}

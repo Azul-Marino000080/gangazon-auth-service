@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const logger = require('./logger');
 
 /**
@@ -64,75 +64,39 @@ function verifyRefreshToken(token) {
  * Guarda un refresh token en la base de datos
  */
 async function storeRefreshToken(userId, token, expiresInDays = 7) {
-  const supabase = createClient();
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
-  const { error } = await supabase
-    .from('refresh_tokens')
-    .insert({
-      user_id: userId,
-      token,
-      expires_at: expiresAt.toISOString()
-    });
-
-  if (error) {
-    logger.error('Error storing refresh token:', error);
-    throw error;
-  }
+  await query(
+    'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+    [userId, token, expiresAt.toISOString()]
+  );
 }
 
 /**
  * Verifica si un refresh token existe en la base de datos
  */
 async function validateRefreshToken(token) {
-  const supabase = createClient();
-  
-  const { data, error } = await supabase
-    .from('refresh_tokens')
-    .select('*')
-    .eq('token', token)
-    .gt('expires_at', new Date().toISOString())
-    .single();
+  const result = await query(
+    'SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > NOW()',
+    [token]
+  );
 
-  if (error || !data) {
-    return null;
-  }
-
-  return data;
+  return result.rows.length > 0 ? result.rows[0] : null;
 }
 
 /**
  * Elimina un refresh token
  */
 async function revokeRefreshToken(token) {
-  const supabase = createClient();
-  
-  const { error } = await supabase
-    .from('refresh_tokens')
-    .delete()
-    .eq('token', token);
-
-  if (error) {
-    logger.error('Error revoking refresh token:', error);
-    throw error;
-  }
+  await query('DELETE FROM refresh_tokens WHERE token = $1', [token]);
 }
 
 /**
  * Elimina todos los refresh tokens expirados
  */
 async function cleanExpiredTokens() {
-  const supabase = createClient();
-  
-  const { error } = await supabase
-    .from('refresh_tokens')
-    .delete()
-    .lt('expires_at', new Date().toISOString());
-
-  if (error) {
-    logger.error('Error cleaning expired tokens:', error);
-  }
+  await query('DELETE FROM refresh_tokens WHERE expires_at < NOW()');
 }
 
 module.exports = {

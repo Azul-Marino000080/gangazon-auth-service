@@ -1,10 +1,10 @@
 const express = require('express');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { validate } = require('../middleware/validation');
 const { createFranchiseSchema, updateFranchiseSchema } = require('../validators/schemas');
 const { authenticateToken, requirePermission, requireSuperAdmin } = require('../middleware/auth');
-const { getOne, buildPaginatedQuery, createAuditLog, checkExists } = require('../utils/queryHelpers');
+const { getOne, getPaginated, createAuditLog, checkExists } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -15,17 +15,16 @@ router.use(authenticateToken);
  */
 router.post('/', requirePermission('franchises.create'), validate(createFranchiseSchema), catchAsync(async (req, res) => {
   const { name, code, email, phone, address, city, state, postalCode, country, contactPerson } = req.body;
-  const supabase = createClient();
 
   await checkExists('franchises', { code }, 'El código de franquicia ya existe');
 
-  const { data: newFranchise, error } = await supabase.from('franchises').insert({
-    name, code: code.toUpperCase(), email: email || null, phone: phone || null, address: address || null,
-    city: city || null, state: state || null, postal_code: postalCode || null, country: country || null,
-    contact_person: contactPerson || null
-  }).select().single();
+  const result = await query(
+    `INSERT INTO franchises (name, code, email, phone, address, city, state, postal_code, country, contact_person)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [name, code.toUpperCase(), email || null, phone || null, address || null, city || null, state || null, postalCode || null, country || null, contactPerson || null]
+  );
 
-  if (error) throw new AppError('Error al crear franquicia', 500);
+  const newFranchise = result.rows[0];
 
   await createAuditLog({ userId: req.user.id, action: 'franchise_created', ipAddress: req.ip, details: { franchiseCode: newFranchise.code, franchiseName: newFranchise.name } });
 

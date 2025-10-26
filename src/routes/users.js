@@ -1,11 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { validate } = require('../middleware/validation');
 const { createUserSchema, updateUserSchema, assignPermissionSchema, revokePermissionSchema } = require('../validators/schemas');
 const { authenticateToken, requirePermission, requireSuperAdmin } = require('../middleware/auth');
-const { getOne, buildPaginatedQuery, applyFilters, createAuditLog, mapUser, paginatedResponse, checkExists } = require('../utils/queryHelpers');
+const { getOne, getPaginated, createAuditLog, mapUser, paginatedResponse, checkExists } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -16,7 +16,6 @@ router.use(authenticateToken);
  */
 router.post('/', requirePermission('users.create'), validate(createUserSchema), catchAsync(async (req, res) => {
   const { email, password, firstName, lastName, phone, franchiseId } = req.body;
-  const supabase = createClient();
 
   // Verificar email único
   await checkExists('users', { email: email.toLowerCase() }, 'El email ya está registrado');
@@ -27,16 +26,13 @@ router.post('/', requirePermission('users.create'), validate(createUserSchema), 
   }
 
   // Crear usuario
-  const { data: newUser, error } = await supabase.from('users').insert({
-    email: email.toLowerCase(),
-    password_hash: await bcrypt.hash(password, 12),
-    first_name: firstName,
-    last_name: lastName,
-    phone: phone || null,
-    franchise_id: franchiseId || null
-  }).select().single();
+  const result = await query(
+    `INSERT INTO users (email, password_hash, first_name, last_name, phone, franchise_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [email.toLowerCase(), await bcrypt.hash(password, 12), firstName, lastName, phone || null, franchiseId || null]
+  );
 
-  if (error) throw new AppError('Error al crear usuario', 500);
+  const newUser = result.rows[0];
 
   await createAuditLog({
     userId: req.user.id,
@@ -54,18 +50,51 @@ router.post('/', requirePermission('users.create'), validate(createUserSchema), 
  */
 router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 20, franchiseId, search, isActive } = req.query;
-  let query = buildPaginatedQuery('v_users_with_franchises', { page, limit });
 
-  if (franchiseId) query = query.eq('franchise_id', franchiseId);
-  if (search) query = query.or(`email.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%`);
-  if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
+  const filters = {};
+  if (franchiseId) filters.franchise_id = franchiseId;
+  if (isActive !== undefined) filters.is_active = isActive === 'true';
 
-  query = query.order('created_at', { ascending: false });
-  const { data: users, count, error } = await query;
+  // Si hay búsqueda, usar query personalizada
+  let result;
+  if (search) {
+    const offset = (page - 1) * limit;
+    const searchPattern = `%${search}%`;
+    const [dataResult, countResult] = await Promise.all([
+      query(
+        `SELECT * FROM v_users_with_franchises 
+         WHERE (email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1)
+         ${franchiseId ? 'AND franchise_id = $4' : ''}
+         ${isActive !== undefined ? `AND is_active = $${franchiseId ? 5 : 4}` : ''}
+         ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+        franchiseId && isActive !== undefined
+          ? [searchPattern, limit, offset, franchiseId, isActive === 'true']
+          : franchiseId
+          ? [searchPattern, limit, offset, franchiseId]
+          : isActive !== undefined
+          ? [searchPattern, limit, offset, isActive === 'true']
+          : [searchPattern, limit, offset]
+      ),
+      query(
+        `SELECT COUNT(*) as total FROM v_users_with_franchises 
+         WHERE (email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1)
+         ${franchiseId ? 'AND franchise_id = $2' : ''}
+         ${isActive !== undefined ? `AND is_active = $${franchiseId ? 3 : 2}` : ''}`,
+        franchiseId && isActive !== undefined
+          ? [searchPattern, franchiseId, isActive === 'true']
+          : franchiseId
+          ? [searchPattern, franchiseId]
+          : isActive !== undefined
+          ? [searchPattern, isActive === 'true']
+          : [searchPattern]
+      )
+    ]);
+    result = { data: dataResult.rows, count: parseInt(countResult.rows[0].total) };
+  } else {
+    result = await getPaginated('v_users_with_franchises', { page, limit, filters });
+  }
 
-  if (error) throw new AppError('Error al obtener usuarios', 500);
-
-  res.json({ success: true, data: paginatedResponse(users.map(mapUser), count, page, limit) });
+  res.json({ success: true, data: paginatedResponse(result.data.map(mapUser), result.count, page, limit) });
 }));
 
 /**
@@ -82,20 +111,42 @@ router.get('/:id', requirePermission('users.view'), catchAsync(async (req, res) 
 router.put('/:id', requirePermission('users.edit'), validate(updateUserSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { firstName, lastName, phone, isActive } = req.body;
-  const supabase = createClient();
 
   const existingUser = await getOne('users', { id }, 'Usuario no encontrado');
 
-  const updateData = {};
-  if (firstName !== undefined) updateData.first_name = firstName;
-  if (lastName !== undefined) updateData.last_name = lastName;
-  if (phone !== undefined) updateData.phone = phone;
-  if (isActive !== undefined) updateData.is_active = isActive;
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
 
-  const { data: updatedUser, error } = await supabase.from('users').update(updateData).eq('id', id).select().single();
-  if (error) throw new AppError('Error al actualizar usuario', 500);
+  if (firstName !== undefined) {
+    updates.push(`first_name = $${paramIndex++}`);
+    values.push(firstName);
+  }
+  if (lastName !== undefined) {
+    updates.push(`last_name = $${paramIndex++}`);
+    values.push(lastName);
+  }
+  if (phone !== undefined) {
+    updates.push(`phone = $${paramIndex++}`);
+    values.push(phone);
+  }
+  if (isActive !== undefined) {
+    updates.push(`is_active = $${paramIndex++}`);
+    values.push(isActive);
+  }
 
-  await createAuditLog({ userId: req.user.id, action: 'user_updated', ipAddress: req.ip, details: { updatedUserId: id, changes: updateData } });
+  if (updates.length === 0) {
+    return res.json({ success: true, data: { user: mapUser(existingUser) } });
+  }
+
+  values.push(id);
+  const result = await query(
+    `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  const updatedUser = result.rows[0];
+  await createAuditLog({ userId: req.user.id, action: 'user_updated', ipAddress: req.ip, details: { updatedUserId: id, changes: req.body } });
 
   logger.info(`Usuario actualizado: ${existingUser.email} por ${req.user.email}`);
   res.json({ success: true, data: { user: mapUser(updatedUser) } });
@@ -108,11 +159,9 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
   if (id === req.user.id) throw new AppError('No puedes eliminar tu propio usuario', 400);
 
-  const supabase = createClient();
   const existingUser = await getOne('users', { id }, 'Usuario no encontrado');
 
-  const { error } = await supabase.from('users').delete().eq('id', id);
-  if (error) throw new AppError('Error al eliminar usuario', 500);
+  await query('DELETE FROM users WHERE id = $1', [id]);
 
   await createAuditLog({ userId: req.user.id, action: 'user_deleted', ipAddress: req.ip, details: { deletedUserId: id, deletedEmail: existingUser.email } });
 
@@ -126,25 +175,31 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
 router.get('/:id/permissions', requirePermission('permissions.view'), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { applicationId } = req.query;
-  const supabase = createClient();
 
-  let query = supabase
-    .from('v_user_permissions_by_app')
-    .select('permission_id, permission_code, permission_display_name, permission_category, application_id, application_name, application_code, assigned_at, expires_at, is_active')
-    .eq('user_id', id);
-  if (applicationId) query = query.eq('application_id', applicationId);
-
-  const { data: permissions, error } = await query;
-  if (error) throw new AppError('Error al obtener permisos', 500);
+  const result = applicationId
+    ? await query(
+        `SELECT permission_id, permission_code, permission_display_name, permission_category, 
+                application_id, application_name, application_code, assigned_at, expires_at, is_active
+         FROM v_user_permissions_by_app 
+         WHERE user_id = $1 AND application_id = $2`,
+        [id, applicationId]
+      )
+    : await query(
+        `SELECT permission_id, permission_code, permission_display_name, permission_category,
+                application_id, application_name, application_code, assigned_at, expires_at, is_active
+         FROM v_user_permissions_by_app 
+         WHERE user_id = $1`,
+        [id]
+      );
 
   res.json({
     success: true,
     data: {
-      permissions: permissions.map(p => ({
+      permissions: result.rows.map(p => ({
         permissionId: p.permission_id,
         permissionCode: p.permission_code,
-        permissionName: p.permission_name,
-        category: p.category,
+        permissionName: p.permission_display_name,
+        category: p.permission_category,
         applicationId: p.application_id,
         applicationName: p.application_name,
         assignedAt: p.assigned_at,
@@ -160,7 +215,6 @@ router.get('/:id/permissions', requirePermission('permissions.view'), catchAsync
 router.post('/:id/assign', requirePermission('permissions.assign'), validate(assignPermissionSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { applicationId, permissionId, expiresAt } = req.body;
-  const supabase = createClient();
 
   const user = await getOne('users', { id }, 'Usuario no encontrado');
   const permission = await getOne('permissions', { id: permissionId, application_id: applicationId }, 'Permiso no encontrado o no pertenece a la aplicación');
@@ -176,14 +230,10 @@ router.post('/:id/assign', requirePermission('permissions.assign'), validate(ass
   // Verificar si ya tiene el permiso
   await checkExists('user_app_permissions', { user_id: id, application_id: applicationId, permission_id: permissionId }, 'El usuario ya tiene este permiso asignado');
 
-  const { error } = await supabase.from('user_app_permissions').insert({
-    user_id: id,
-    application_id: applicationId,
-    permission_id: permissionId,
-    expires_at: expiresAt || null
-  });
-
-  if (error) throw new AppError('Error al asignar permiso', 500);
+  await query(
+    'INSERT INTO user_app_permissions (user_id, application_id, permission_id, expires_at) VALUES ($1, $2, $3, $4)',
+    [id, applicationId, permissionId, expiresAt || null]
+  );
 
   await createAuditLog({
     userId: req.user.id,
@@ -203,15 +253,15 @@ router.post('/:id/assign', requirePermission('permissions.assign'), validate(ass
 router.delete('/:id/revoke', requirePermission('permissions.assign'), validate(revokePermissionSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { applicationId, permissionId } = req.body;
-  const supabase = createClient();
 
   const user = await getOne('users', { id }, 'Usuario no encontrado');
-  const { data: permission } = await supabase.from('permissions').select('code').eq('id', permissionId).single();
+  const permissionResult = await query('SELECT code FROM permissions WHERE id = $1', [permissionId]);
+  const permission = permissionResult.rows[0];
 
-  const { error } = await supabase.from('user_app_permissions').delete()
-    .eq('user_id', id).eq('application_id', applicationId).eq('permission_id', permissionId);
-
-  if (error) throw new AppError('Error al revocar permiso', 500);
+  await query(
+    'DELETE FROM user_app_permissions WHERE user_id = $1 AND application_id = $2 AND permission_id = $3',
+    [id, applicationId, permissionId]
+  );
 
   await createAuditLog({
     userId: req.user.id,

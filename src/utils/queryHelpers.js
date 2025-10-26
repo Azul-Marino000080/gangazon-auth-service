@@ -1,78 +1,82 @@
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const logger = require('./logger');
-
-/**
- * Helper para construir y ejecutar queries con manejo de errores estándar
- */
-async function executeQuery(queryBuilder, errorMessage) {
-  const { data, error, count } = await queryBuilder;
-  
-  if (error) {
-    logger.error(`${errorMessage}:`, error);
-    throw new Error(errorMessage);
-  }
-  
-  return { data, count };
-}
 
 /**
  * Helper para obtener un registro único
  */
 async function getOne(table, filters, errorMessage = 'Registro no encontrado') {
-  const supabase = createClient();
-  let query = supabase.from(table).select('*');
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
   
   Object.entries(filters).forEach(([key, value]) => {
-    query = query.eq(key, value);
+    whereClauses.push(`${key} = $${paramIndex}`);
+    values.push(value);
+    paramIndex++;
   });
   
-  const { data, error } = await query.single();
+  const sql = `SELECT * FROM ${table} WHERE ${whereClauses.join(' AND ')} LIMIT 1`;
+  const result = await query(sql, values);
   
-  if (error || !data) {
+  if (result.rows.length === 0) {
     throw new Error(errorMessage);
   }
   
-  return data;
+  return result.rows[0];
 }
 
 /**
  * Helper para paginación estándar
  */
-function buildPaginatedQuery(table, { page = 1, limit = 20, select = '*' }) {
-  const supabase = createClient();
+async function getPaginated(table, { page = 1, limit = 20, select = '*', filters = {}, orderBy = 'created_at DESC' }) {
   const offset = (page - 1) * limit;
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
   
-  return supabase
-    .from(table)
-    .select(select, { count: 'exact' })
-    .range(offset, offset + limit - 1);
-}
-
-/**
- * Helper para aplicar múltiples filtros a una query
- */
-function applyFilters(query, filters) {
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
-      query = query.eq(key, value);
+      whereClauses.push(`${key} = $${paramIndex}`);
+      values.push(value);
+      paramIndex++;
     }
   });
-  return query;
+  
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  
+  // Query para datos
+  const dataSql = `
+    SELECT ${select} 
+    FROM ${table} 
+    ${whereClause} 
+    ORDER BY ${orderBy} 
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+  `;
+  
+  // Query para contar total
+  const countSql = `SELECT COUNT(*) as total FROM ${table} ${whereClause}`;
+  
+  const [dataResult, countResult] = await Promise.all([
+    query(dataSql, [...values, limit, offset]),
+    query(countSql, values)
+  ]);
+  
+  return {
+    data: dataResult.rows,
+    count: parseInt(countResult.rows[0].total)
+  };
 }
 
 /**
  * Helper para crear registro de auditoría
  */
 async function createAuditLog({ userId, applicationId = null, action, ipAddress, details = {} }) {
-  const supabase = createClient();
+  const sql = `
+    INSERT INTO audit_log (user_id, application_id, action, ip_address, details)
+    VALUES ($1, $2, $3, $4, $5)
+  `;
   
-  await supabase.from('audit_log').insert({
-    user_id: userId,
-    application_id: applicationId,
-    action,
-    ip_address: ipAddress,
-    details
-  });
+  await query(sql, [userId, applicationId, action, ipAddress, JSON.stringify(details)]);
 }
 
 /**
@@ -115,27 +119,29 @@ function paginatedResponse(data, count, page, limit) {
  * Helper para verificar existencia de registro
  */
 async function checkExists(table, filters, customError = null) {
-  const supabase = createClient();
-  let query = supabase.from(table).select('id');
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
   
   Object.entries(filters).forEach(([key, value]) => {
-    query = query.eq(key, value);
+    whereClauses.push(`${key} = $${paramIndex}`);
+    values.push(value);
+    paramIndex++;
   });
   
-  const { data } = await query.single();
+  const sql = `SELECT id FROM ${table} WHERE ${whereClauses.join(' AND ')} LIMIT 1`;
+  const result = await query(sql, values);
   
-  if (data && customError) {
+  if (result.rows.length > 0 && customError) {
     throw new Error(customError);
   }
   
-  return !!data;
+  return result.rows.length > 0;
 }
 
 module.exports = {
-  executeQuery,
   getOne,
-  buildPaginatedQuery,
-  applyFilters,
+  getPaginated,
   createAuditLog,
   mapUser,
   paginatedResponse,

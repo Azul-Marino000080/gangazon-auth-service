@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { validate } = require('../middleware/validation');
 const { loginSchema, refreshTokenSchema } = require('../validators/schemas');
@@ -16,7 +16,6 @@ const router = express.Router();
  */
 router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
   const { email, password, applicationCode } = req.body;
-  const supabase = createClient();
 
   // Verificar aplicación
   const application = await getOne('applications', { code: applicationCode }, 'Aplicación no encontrada');
@@ -32,13 +31,12 @@ router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
   }
 
   // Obtener permisos
-  const { data: userPermissions } = await supabase
-    .from('v_user_permissions_by_app')
-    .select('permission_code')
-    .eq('user_id', user.id)
-    .eq('application_id', application.id);
+  const permissionsResult = await query(
+    'SELECT permission_code FROM v_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
+    [user.id, application.id]
+  );
 
-  const permissions = userPermissions?.map(p => p.permission_code) || [];
+  const permissions = permissionsResult.rows.map(p => p.permission_code);
 
   // Generar tokens
   const accessToken = generateAccessToken(user, permissions, application.id);
@@ -47,12 +45,10 @@ router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
 
   // Crear sesión y auditoría
   await Promise.all([
-    supabase.from('sessions').insert({
-      user_id: user.id,
-      application_id: application.id,
-      ip_address: req.ip,
-      user_agent: req.get('user-agent')
-    }),
+    query(
+      'INSERT INTO sessions (user_id, application_id, ip_address, user_agent) VALUES ($1, $2, $3, $4)',
+      [user.id, application.id, req.ip, req.get('user-agent')]
+    ),
     createAuditLog({
       userId: user.id,
       applicationId: application.id,
@@ -88,10 +84,11 @@ router.post('/logout', validate(refreshTokenSchema), catchAsync(async (req, res)
   await revokeRefreshToken(req.body.refreshToken);
 
   if (req.user) {
-    const supabase = createClient();
     await Promise.all([
-      supabase.from('sessions').update({ ended_at: new Date().toISOString() })
-        .eq('user_id', req.user.id).is('ended_at', null),
+      query(
+        'UPDATE sessions SET ended_at = NOW() WHERE user_id = $1 AND ended_at IS NULL',
+        [req.user.id]
+      ),
       createAuditLog({ userId: req.user.id, action: 'logout', ipAddress: req.ip })
     ]);
   }
@@ -107,7 +104,6 @@ router.post('/refresh', validate(refreshTokenSchema), catchAsync(async (req, res
   const tokenData = await validateRefreshToken(req.body.refreshToken);
   if (!tokenData) throw new AppError('Refresh token inválido o expirado', 401);
 
-  const supabase = createClient();
   const user = await getOne('users', { id: tokenData.user_id }, 'Usuario no encontrado');
   if (!user.is_active) throw new AppError('Usuario desactivado', 403);
 
@@ -119,18 +115,17 @@ router.post('/refresh', validate(refreshTokenSchema), catchAsync(async (req, res
   }
 
   // Obtener permisos filtrados por aplicación
-  let permissionsQuery = supabase
-    .from('v_user_permissions_by_app')
-    .select('permission_code')
-    .eq('user_id', user.id);
-  
-  if (applicationId) {
-    permissionsQuery = permissionsQuery.eq('application_id', applicationId);
-  }
+  const permissionsResult = applicationId
+    ? await query(
+        'SELECT permission_code FROM v_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
+        [user.id, applicationId]
+      )
+    : await query(
+        'SELECT permission_code FROM v_user_permissions_by_app WHERE user_id = $1',
+        [user.id]
+      );
 
-  const { data: userPermissions } = await permissionsQuery;
-
-  const permissions = userPermissions?.map(p => p.permission_code) || [];
+  const permissions = permissionsResult.rows.map(p => p.permission_code);
   const newAccessToken = generateAccessToken(user, permissions, applicationId);
 
   logger.info(`Token renovado para usuario: ${user.email}`);
