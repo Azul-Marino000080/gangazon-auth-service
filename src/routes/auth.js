@@ -18,11 +18,11 @@ router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
   const { email, password, applicationCode } = req.body;
 
   // Verificar aplicación
-  const application = await getOne('applications', { code: applicationCode }, 'Aplicación no encontrada');
+  const application = await getOne('auth_gangazon.auth_applications', { code: applicationCode }, 'Aplicación no encontrada');
   if (!application.is_active) throw new AppError('Aplicación desactivada', 403);
 
   // Buscar usuario
-  const user = await getOne('users', { email: email.toLowerCase() }, 'Credenciales inválidas');
+  const user = await getOne('auth_gangazon.auth_users', { email: email.toLowerCase() }, 'Credenciales inválidas');
   if (!user.is_active) throw new AppError('Usuario desactivado', 403);
 
   // Verificar contraseña
@@ -46,7 +46,7 @@ router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
   // Crear sesión y auditoría
   await Promise.all([
     query(
-      'INSERT INTO sessions (user_id, application_id, ip_address, user_agent) VALUES ($1, $2, $3, $4)',
+      'INSERT INTO auth_gangazon.auth_sessions (user_id, application_id, ip_address, user_agent) VALUES ($1, $2, $3, $4)',
       [user.id, application.id, req.ip, req.get('user-agent')]
     ),
     createAuditLog({
@@ -86,7 +86,7 @@ router.post('/logout', validate(refreshTokenSchema), catchAsync(async (req, res)
   if (req.user) {
     await Promise.all([
       query(
-        'UPDATE sessions SET ended_at = NOW() WHERE user_id = $1 AND ended_at IS NULL',
+        'UPDATE auth_gangazon.auth_sessions SET ended_at = NOW() WHERE user_id = $1 AND ended_at IS NULL',
         [req.user.id]
       ),
       createAuditLog({ userId: req.user.id, action: 'logout', ipAddress: req.ip })
@@ -104,24 +104,24 @@ router.post('/refresh', validate(refreshTokenSchema), catchAsync(async (req, res
   const tokenData = await validateRefreshToken(req.body.refreshToken);
   if (!tokenData) throw new AppError('Refresh token inválido o expirado', 401);
 
-  const user = await getOne('users', { id: tokenData.user_id }, 'Usuario no encontrado');
+  const user = await getOne('auth_gangazon.auth_users', { id: tokenData.user_id }, 'Usuario no encontrado');
   if (!user.is_active) throw new AppError('Usuario desactivado', 403);
 
   // Validar aplicación si está en el token
   let applicationId = tokenData.applicationId;
   if (applicationId) {
-    const application = await getOne('applications', { id: applicationId }, 'Aplicación no encontrada');
+    const application = await getOne('auth_gangazon.auth_applications', { id: applicationId }, 'Aplicación no encontrada');
     if (!application.is_active) throw new AppError('Aplicación desactivada', 403);
   }
 
   // Obtener permisos filtrados por aplicación
   const permissionsResult = applicationId
     ? await query(
-        'SELECT permission_code FROM v_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
+        'SELECT permission_code FROM auth_gangazon.v_auth_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
         [user.id, applicationId]
       )
     : await query(
-        'SELECT permission_code FROM v_user_permissions_by_app WHERE user_id = $1',
+        'SELECT permission_code FROM auth_gangazon.v_auth_user_permissions_by_app WHERE user_id = $1',
         [user.id]
       );
 

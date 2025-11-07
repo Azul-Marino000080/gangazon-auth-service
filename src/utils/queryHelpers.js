@@ -72,7 +72,7 @@ async function getPaginated(table, { page = 1, limit = 20, select = '*', filters
  */
 async function createAuditLog({ userId, applicationId = null, action, ipAddress, details = {} }) {
   const sql = `
-    INSERT INTO audit_log (user_id, application_id, action, ip_address, details)
+    INSERT INTO auth_gangazon.auth_audit_log (user_id, application_id, action, ip_address, details)
     VALUES ($1, $2, $3, $4, $5)
   `;
   

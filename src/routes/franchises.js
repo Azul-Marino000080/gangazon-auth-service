@@ -16,10 +16,10 @@ router.use(authenticateToken);
 router.post('/', requirePermission('franchises.create'), validate(createFranchiseSchema), catchAsync(async (req, res) => {
   const { name, code, email, phone, address, city, state, postalCode, country, contactPerson } = req.body;
 
-  await checkExists('franchises', { code }, 'El código de franquicia ya existe');
+  await checkExists('auth_gangazon.auth_franchises', { code }, 'El código de franquicia ya existe');
 
   const result = await query(
-    `INSERT INTO franchises (name, code, email, phone, address, city, state, postal_code, country, contact_person)
+    `INSERT INTO auth_gangazon.auth_franchises (name, code, email, phone, address, city, state, postal_code, country, contact_person)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
     [name, code.toUpperCase(), email || null, phone || null, address || null, city || null, state || null, postalCode || null, country || null, contactPerson || null]
   );
@@ -37,7 +37,7 @@ router.post('/', requirePermission('franchises.create'), validate(createFranchis
  */
 router.get('/', requirePermission('franchises.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 20, search, isActive } = req.query;
-  let query = buildPaginatedQuery('franchises', { page, limit });
+  let query = buildPaginatedQuery('auth_gangazon.auth_franchises', { page, limit });
 
   if (search) query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%,city.ilike.%${search}%`);
   if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
@@ -64,8 +64,8 @@ router.get('/:id', requirePermission('franchises.view'), catchAsync(async (req, 
   const supabase = createClient();
 
   const [franchise, { count: userCount }] = await Promise.all([
-    getOne('franchises', { id }, 'Franquicia no encontrada'),
-    supabase.from('users').select('*', { count: 'exact', head: true }).eq('franchise_id', id)
+    getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada'),
+    supabase.from('auth_users').select('*', { count: 'exact', head: true }).eq('franchise_id', id)
   ]);
 
   res.json({ success: true, data: { franchise: { ...mapFranchise(franchise, true), userCount: userCount || 0 } } });
@@ -79,7 +79,7 @@ router.put('/:id', requirePermission('franchises.edit'), validate(updateFranchis
   const { name, email, phone, address, city, state, postalCode, country, contactPerson, isActive } = req.body;
   const supabase = createClient();
 
-  const existing = await getOne('franchises', { id }, 'Franquicia no encontrada');
+  const existing = await getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada');
   // Protección: GANGAZON_HQ es la franquicia matriz del sistema
   if (existing.code === 'GANGAZON_HQ') throw new AppError('No se puede modificar la franquicia matriz del sistema (GANGAZON_HQ)', 400);
 
@@ -95,7 +95,7 @@ router.put('/:id', requirePermission('franchises.edit'), validate(updateFranchis
   if (contactPerson !== undefined) updateData.contact_person = contactPerson;
   if (isActive !== undefined) updateData.is_active = isActive;
 
-  const { data: updatedFranchise, error } = await supabase.from('franchises').update(updateData).eq('id', id).select().single();
+  const { data: updatedFranchise, error } = await supabase.from('auth_franchises').update(updateData).eq('id', id).select().single();
   if (error) throw new AppError('Error al actualizar franquicia', 500);
 
   await createAuditLog({ userId: req.user.id, action: 'franchise_updated', ipAddress: req.ip, details: { franchiseCode: existing.code, changes: updateData } });
@@ -111,14 +111,14 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
   const supabase = createClient();
 
-  const existing = await getOne('franchises', { id }, 'Franquicia no encontrada');
+  const existing = await getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada');
   // Protección: GANGAZON_HQ es la franquicia matriz del sistema
   if (existing.code === 'GANGAZON_HQ') throw new AppError('No se puede eliminar la franquicia matriz del sistema (GANGAZON_HQ)', 400);
 
-  const { count: userCount } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('franchise_id', id);
+  const { count: userCount } = await supabase.from('auth_users').select('*', { count: 'exact', head: true }).eq('franchise_id', id);
   if (userCount > 0) throw new AppError(`No se puede eliminar la franquicia porque tiene ${userCount} usuario(s) asociado(s)`, 400);
 
-  const { error } = await supabase.from('franchises').delete().eq('id', id);
+  const { error } = await supabase.from('auth_franchises').delete().eq('id', id);
   if (error) throw new AppError('Error al eliminar franquicia', 500);
 
   await createAuditLog({ userId: req.user.id, action: 'franchise_deleted', ipAddress: req.ip, details: { deletedFranchiseCode: existing.code, deletedFranchiseName: existing.name } });

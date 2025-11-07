@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const logger = require('../utils/logger');
 
@@ -56,113 +56,99 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
     throw new AppError('La contraseña debe tener al menos 8 caracteres', 400);
   }
 
-  const supabase = createClient();
-
   // Verificar que no exista ya un super admin
-  const { data: existingSuperAdmins } = await supabase
-    .from('user_app_permissions')
-    .select('user_id, permission:permissions!inner(code)')
-    .eq('permission.code', 'super_admin')
-    .limit(1);
+  const existingSuperAdminsResult = await query(`
+    SELECT uap.user_id
+    FROM auth_gangazon.auth_user_app_permissions uap
+    INNER JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+    WHERE p.code = 'super_admin'
+    LIMIT 1
+  `);
 
-  if (existingSuperAdmins && existingSuperAdmins.length > 0) {
+  if (existingSuperAdminsResult.rows.length > 0) {
     throw new AppError('Ya existe un super administrador en el sistema. Use el panel de administración para crear más usuarios.', 400);
   }
 
   // Verificar que el email no esté registrado
-  const { data: existingUser } = await supabase
-    .from('users')
-    .select('id')
-    .eq('email', email.toLowerCase())
-    .single();
+  const existingUserResult = await query(`
+    SELECT id FROM auth_gangazon.auth_users WHERE email = $1
+  `, [email.toLowerCase()]);
 
-  if (existingUser) {
+  if (existingUserResult.rows.length > 0) {
     throw new AppError('El email ya está registrado', 400);
   }
 
   // Obtener la franquicia matriz (GANGAZON_HQ)
-  const { data: franchise, error: franchiseError } = await supabase
-    .from('franchises')
-    .select('id')
-    .eq('code', 'GANGAZON_HQ')
-    .single();
+  const franchiseResult = await query(`
+    SELECT id FROM auth_gangazon.auth_franchises WHERE code = 'GANGAZON_HQ'
+  `);
 
-  if (franchiseError || !franchise) {
+  if (franchiseResult.rows.length === 0) {
     throw new AppError('Franquicia matriz no encontrada. Ejecute el schema.sql primero.', 500);
   }
+  const franchise = franchiseResult.rows[0];
 
   // Obtener la aplicación ADMIN_PANEL
-  const { data: application, error: appError } = await supabase
-    .from('applications')
-    .select('id')
-    .eq('code', 'ADMIN_PANEL')
-    .single();
+  const applicationResult = await query(`
+    SELECT id FROM auth_gangazon.auth_applications WHERE code = 'ADMIN_PANEL'
+  `);
 
-  if (appError || !application) {
+  if (applicationResult.rows.length === 0) {
     throw new AppError('Aplicación ADMIN_PANEL no encontrada. Ejecute el schema.sql primero.', 500);
   }
+  const application = applicationResult.rows[0];
 
   // Obtener el permiso super_admin
-  const { data: permission, error: permError } = await supabase
-    .from('permissions')
-    .select('id')
-    .eq('code', 'super_admin')
-    .eq('application_id', application.id)
-    .single();
+  const permissionResult = await query(`
+    SELECT id FROM auth_gangazon.auth_permissions 
+    WHERE code = 'super_admin' AND application_id = $1
+  `, [application.id]);
 
-  if (permError || !permission) {
+  if (permissionResult.rows.length === 0) {
     throw new AppError('Permiso super_admin no encontrado. Ejecute el schema.sql primero.', 500);
   }
+  const permission = permissionResult.rows[0];
+
+  // Hash de la contraseña
+  const passwordHash = await bcrypt.hash(password, 12);
 
   // Crear el usuario
-  const { data: newUser, error: userError } = await supabase
-    .from('users')
-    .insert({
-      email: email.toLowerCase(),
-      password_hash: await bcrypt.hash(password, 12),
-      first_name: firstName,
-      last_name: lastName,
-      phone: phone || null,
-      franchise_id: franchise.id,
-      is_active: true,
-      email_verified: true
-    })
-    .select()
-    .single();
+  const newUserResult = await query(`
+    INSERT INTO auth_gangazon.auth_users 
+    (email, password_hash, first_name, last_name, phone, franchise_id, is_active, email_verified)
+    VALUES ($1, $2, $3, $4, $5, $6, true, true)
+    RETURNING id, email, first_name, last_name
+  `, [email.toLowerCase(), passwordHash, firstName, lastName, phone || null, franchise.id]);
 
-  if (userError) {
-    logger.error('Error creando super admin:', userError);
+  if (newUserResult.rows.length === 0) {
+    logger.error('Error creando super admin');
     throw new AppError('Error al crear usuario', 500);
   }
+  const newUser = newUserResult.rows[0];
 
   // Asignar el permiso super_admin
-  const { error: permAssignError } = await supabase
-    .from('user_app_permissions')
-    .insert({
-      user_id: newUser.id,
-      application_id: application.id,
-      permission_id: permission.id,
-      is_active: true
-    });
-
-  if (permAssignError) {
+  try {
+    await query(`
+      INSERT INTO auth_gangazon.auth_user_app_permissions 
+      (user_id, application_id, permission_id, is_active)
+      VALUES ($1, $2, $3, true)
+    `, [newUser.id, application.id, permission.id]);
+  } catch (permAssignError) {
     // Intentar eliminar el usuario creado para mantener consistencia
-    await supabase.from('users').delete().eq('id', newUser.id);
+    await query('DELETE FROM auth_gangazon.auth_users WHERE id = $1', [newUser.id]);
     logger.error('Error asignando permiso super_admin:', permAssignError);
     throw new AppError('Error al asignar permisos', 500);
   }
 
   // Crear log de auditoría
-  await supabase.from('audit_log').insert({
-    user_id: newUser.id,
-    application_id: application.id,
-    action: 'super_admin_created',
-    ip_address: req.ip,
-    details: {
-      email: newUser.email,
-      createdViaSetup: true
-    }
-  });
+  await query(`
+    INSERT INTO auth_gangazon.auth_audit_log 
+    (user_id, application_id, action, ip_address, details)
+    VALUES ($1, $2, $3, $4, $5)
+  `, [newUser.id, application.id, 'super_admin_created', req.ip, JSON.stringify({
+    email: newUser.email,
+    createdViaSetup: true
+  })]);
 
   logger.warn(`⚠️  Super Admin creado vía setup: ${newUser.email} desde IP ${req.ip}`);
 
@@ -191,14 +177,15 @@ router.get('/status', catchAsync(async (req, res) => {
   let hasSuperAdmin = false;
   
   if (setupEnabled) {
-    const supabase = createClient();
-    const { data: existingSuperAdmins } = await supabase
-      .from('user_app_permissions')
-      .select('user_id, permission:permissions!inner(code)')
-      .eq('permission.code', 'super_admin')
-      .limit(1);
+    const existingSuperAdminsResult = await query(`
+      SELECT uap.user_id
+      FROM auth_gangazon.auth_user_app_permissions uap
+      INNER JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+      WHERE p.code = 'super_admin'
+      LIMIT 1
+    `);
 
-    hasSuperAdmin = existingSuperAdmins && existingSuperAdmins.length > 0;
+    hasSuperAdmin = existingSuperAdminsResult.rows.length > 0;
   }
 
   res.json({

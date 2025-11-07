@@ -23,7 +23,7 @@ async function authenticateToken(req, res, next) {
     // Verificar que el usuario existe y está activo
     const supabase = createClient();
     const { data: user, error } = await supabase
-      .from('users')
+      .from('auth_users')
       .select('id, email, first_name, last_name, franchise_id, is_active')
       .eq('id', decoded.userId)
       .single();
@@ -134,7 +134,7 @@ async function optionalAuth(req, res, next) {
     if (decoded) {
       const supabase = createClient();
       const { data: user } = await supabase
-        .from('users')
+        .from('auth_users')
         .select('id, email, first_name, last_name, franchise_id, is_active')
         .eq('id', decoded.userId)
         .single();

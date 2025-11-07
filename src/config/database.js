@@ -6,13 +6,14 @@ if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL no está definida en las variables de entorno');
 }
 
-// Crear pool de conexiones a PostgreSQL
+// Crear pool de conexiones a PostgreSQL con esquema 'auth_gangazon'
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false }, // Supabase requiere SSL
   max: 20, // Máximo de conexiones en el pool
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  options: '-c search_path=auth_gangazon,public', // Priorizar esquema 'auth_gangazon' para todas las queries
 });
 
 // Event handlers
@@ -64,14 +65,24 @@ const getClient = async () => {
   return client;
 };
 
-// Verificar conexión
+// Verificar conexión y esquema 'auth_gangazon'
 const verifyConnection = async () => {
   try {
-    const result = await query('SELECT NOW()');
-    logger.info('✅ Conexión a PostgreSQL establecida correctamente');
+    const result = await query('SELECT NOW(), current_schema()');
+    logger.info('✅ Conexión a PostgreSQL/Supabase establecida correctamente');
+    logger.info(`📂 Esquema activo: ${result.rows[0].current_schema}`);
+    
+    // Verificar que existe el esquema auth_gangazon
+    const schemaCheck = await query("SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'auth_gangazon'");
+    if (schemaCheck.rows.length === 0) {
+      logger.warn('⚠️  El esquema "auth_gangazon" no existe. Ejecuta schema_auth_supabase.sql primero');
+    } else {
+      logger.info('✅ Esquema "auth_gangazon" encontrado');
+    }
+    
     return true;
   } catch (error) {
-    logger.error('❌ Error conectando a PostgreSQL:', error);
+    logger.error('❌ Error conectando a PostgreSQL/Supabase:', error);
     return false;
   }
 };

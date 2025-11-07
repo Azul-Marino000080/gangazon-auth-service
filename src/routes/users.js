@@ -18,16 +18,16 @@ router.post('/', requirePermission('users.create'), validate(createUserSchema), 
   const { email, password, firstName, lastName, phone, franchiseId } = req.body;
 
   // Verificar email único
-  await checkExists('users', { email: email.toLowerCase() }, 'El email ya está registrado');
+  await checkExists('auth_gangazon.auth_users', { email: email.toLowerCase() }, 'El email ya está registrado');
 
   // Verificar franquicia si se proporciona
   if (franchiseId) {
-    await getOne('franchises', { id: franchiseId }, 'Franquicia no encontrada');
+    await getOne('auth_gangazon.auth_franchises', { id: franchiseId }, 'Franquicia no encontrada');
   }
 
   // Crear usuario
   const result = await query(
-    `INSERT INTO users (email, password_hash, first_name, last_name, phone, franchise_id)
+    `INSERT INTO auth_gangazon.auth_users (email, password_hash, first_name, last_name, phone, franchise_id)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
     [email.toLowerCase(), await bcrypt.hash(password, 12), firstName, lastName, phone || null, franchiseId || null]
   );
@@ -62,7 +62,7 @@ router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => 
     const searchPattern = `%${search}%`;
     const [dataResult, countResult] = await Promise.all([
       query(
-        `SELECT * FROM v_users_with_franchises 
+        `SELECT * FROM auth_gangazon.v_auth_users_with_franchises 
          WHERE (email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1)
          ${franchiseId ? 'AND franchise_id = $4' : ''}
          ${isActive !== undefined ? `AND is_active = $${franchiseId ? 5 : 4}` : ''}
@@ -76,7 +76,7 @@ router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => 
           : [searchPattern, limit, offset]
       ),
       query(
-        `SELECT COUNT(*) as total FROM v_users_with_franchises 
+        `SELECT COUNT(*) as total FROM auth_gangazon.v_auth_users_with_franchises 
          WHERE (email ILIKE $1 OR first_name ILIKE $1 OR last_name ILIKE $1)
          ${franchiseId ? 'AND franchise_id = $2' : ''}
          ${isActive !== undefined ? `AND is_active = $${franchiseId ? 3 : 2}` : ''}`,
@@ -112,7 +112,7 @@ router.put('/:id', requirePermission('users.edit'), validate(updateUserSchema), 
   const { id } = req.params;
   const { firstName, lastName, phone, isActive } = req.body;
 
-  const existingUser = await getOne('users', { id }, 'Usuario no encontrado');
+  const existingUser = await getOne('auth_gangazon.auth_users', { id }, 'Usuario no encontrado');
 
   const updates = [];
   const values = [];
@@ -141,7 +141,7 @@ router.put('/:id', requirePermission('users.edit'), validate(updateUserSchema), 
 
   values.push(id);
   const result = await query(
-    `UPDATE users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING *`,
+    `UPDATE auth_gangazon.auth_users SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING *`,
     values
   );
 
@@ -159,9 +159,9 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
   if (id === req.user.id) throw new AppError('No puedes eliminar tu propio usuario', 400);
 
-  const existingUser = await getOne('users', { id }, 'Usuario no encontrado');
+  const existingUser = await getOne('auth_gangazon.auth_users', { id }, 'Usuario no encontrado');
 
-  await query('DELETE FROM users WHERE id = $1', [id]);
+  await query('DELETE FROM auth_gangazon.auth_users WHERE id = $1', [id]);
 
   await createAuditLog({ userId: req.user.id, action: 'user_deleted', ipAddress: req.ip, details: { deletedUserId: id, deletedEmail: existingUser.email } });
 
@@ -180,14 +180,14 @@ router.get('/:id/permissions', requirePermission('permissions.view'), catchAsync
     ? await query(
         `SELECT permission_id, permission_code, permission_display_name, permission_category, 
                 application_id, application_name, application_code, assigned_at, expires_at, is_active
-         FROM v_user_permissions_by_app 
+         FROM auth_gangazon.v_auth_user_permissions_by_app 
          WHERE user_id = $1 AND application_id = $2`,
         [id, applicationId]
       )
     : await query(
         `SELECT permission_id, permission_code, permission_display_name, permission_category,
                 application_id, application_name, application_code, assigned_at, expires_at, is_active
-         FROM v_user_permissions_by_app 
+         FROM auth_gangazon.v_auth_user_permissions_by_app 
          WHERE user_id = $1`,
         [id]
       );
@@ -216,8 +216,8 @@ router.post('/:id/assign', requirePermission('permissions.assign'), validate(ass
   const { id } = req.params;
   const { applicationId, permissionId, expiresAt } = req.body;
 
-  const user = await getOne('users', { id }, 'Usuario no encontrado');
-  const permission = await getOne('permissions', { id: permissionId, application_id: applicationId }, 'Permiso no encontrado o no pertenece a la aplicación');
+  const user = await getOne('auth_gangazon.auth_users', { id }, 'Usuario no encontrado');
+  const permission = await getOne('auth_gangazon.auth_permissions', { id: permissionId, application_id: applicationId }, 'Permiso no encontrado o no pertenece a la aplicación');
 
   // Validar que expiresAt sea una fecha futura (si se proporciona)
   if (expiresAt) {
@@ -231,7 +231,7 @@ router.post('/:id/assign', requirePermission('permissions.assign'), validate(ass
   await checkExists('user_app_permissions', { user_id: id, application_id: applicationId, permission_id: permissionId }, 'El usuario ya tiene este permiso asignado');
 
   await query(
-    'INSERT INTO user_app_permissions (user_id, application_id, permission_id, expires_at) VALUES ($1, $2, $3, $4)',
+    'INSERT INTO auth_gangazon.auth_user_app_permissions (user_id, application_id, permission_id, expires_at) VALUES ($1, $2, $3, $4)',
     [id, applicationId, permissionId, expiresAt || null]
   );
 
@@ -254,12 +254,12 @@ router.delete('/:id/revoke', requirePermission('permissions.assign'), validate(r
   const { id } = req.params;
   const { applicationId, permissionId } = req.body;
 
-  const user = await getOne('users', { id }, 'Usuario no encontrado');
-  const permissionResult = await query('SELECT code FROM permissions WHERE id = $1', [permissionId]);
+  const user = await getOne('auth_gangazon.auth_users', { id }, 'Usuario no encontrado');
+  const permissionResult = await query('SELECT code FROM auth_gangazon.auth_permissions WHERE id = $1', [permissionId]);
   const permission = permissionResult.rows[0];
 
   await query(
-    'DELETE FROM user_app_permissions WHERE user_id = $1 AND application_id = $2 AND permission_id = $3',
+    'DELETE FROM auth_gangazon.auth_user_app_permissions WHERE user_id = $1 AND application_id = $2 AND permission_id = $3',
     [id, applicationId, permissionId]
   );
 

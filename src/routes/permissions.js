@@ -17,10 +17,10 @@ router.post('/', requirePermission('permissions.create'), validate(createPermiss
   const { applicationId, code, displayName, description, category } = req.body;
   const supabase = createClient();
 
-  await getOne('applications', { id: applicationId }, 'Aplicación no encontrada');
-  await checkExists('permissions', { application_id: applicationId, code }, 'El código de permiso ya existe para esta aplicación');
+  await getOne('auth_gangazon.auth_applications', { id: applicationId }, 'Aplicación no encontrada');
+  await checkExists('auth_gangazon.auth_permissions', { application_id: applicationId, code }, 'El código de permiso ya existe para esta aplicación');
 
-  const { data: newPermission, error } = await supabase.from('permissions').insert({
+  const { data: newPermission, error } = await supabase.from('auth_permissions').insert({
     application_id: applicationId,
     code,
     display_name: displayName,
@@ -43,8 +43,8 @@ router.get('/', requirePermission('permissions.view'), catchAsync(async (req, re
   const { page = 1, limit = 50, applicationId, category, isActive } = req.query;
   const supabase = createClient();
   
-  let query = buildPaginatedQuery('permissions', { page, limit })
-    .select('*, application:applications(id, name, code)');
+  let query = buildPaginatedQuery('auth_gangazon.auth_permissions', { page, limit })
+    .select('*, application:auth_applications(id, name, code)');
 
   if (applicationId) query = query.eq('application_id', applicationId);
   if (category) query = query.eq('category', category);
@@ -69,8 +69,8 @@ router.get('/', requirePermission('permissions.view'), catchAsync(async (req, re
  */
 router.get('/:id', requirePermission('permissions.view'), catchAsync(async (req, res) => {
   const supabase = createClient();
-  const { data: permission, error } = await supabase.from('permissions')
-    .select('*, application:applications(id, name, code)').eq('id', req.params.id).single();
+  const { data: permission, error } = await supabase.from('auth_permissions')
+    .select('*, application:auth_applications(id, name, code)').eq('id', req.params.id).single();
 
   if (error || !permission) throw new AppError('Permiso no encontrado', 404);
 
@@ -85,7 +85,7 @@ router.put('/:id', requirePermission('permissions.edit'), validate(updatePermiss
   const { displayName, description, isActive } = req.body;
   const supabase = createClient();
 
-  const existing = await getOne('permissions', { id }, 'Permiso no encontrado');
+  const existing = await getOne('auth_gangazon.auth_permissions', { id }, 'Permiso no encontrado');
   // Protección: super_admin es un permiso crítico del sistema
   if (existing.code === 'super_admin') throw new AppError('No se puede modificar el permiso del sistema super_admin', 400);
 
@@ -94,7 +94,7 @@ router.put('/:id', requirePermission('permissions.edit'), validate(updatePermiss
   if (description !== undefined) updateData.description = description;
   if (isActive !== undefined) updateData.is_active = isActive;
 
-  const { data: updatedPermission, error } = await supabase.from('permissions').update(updateData).eq('id', id).select().single();
+  const { data: updatedPermission, error } = await supabase.from('auth_permissions').update(updateData).eq('id', id).select().single();
   if (error) throw new AppError('Error al actualizar permiso', 500);
 
   await createAuditLog({ userId: req.user.id, applicationId: updatedPermission.application_id, action: 'permission_updated', ipAddress: req.ip, details: { permissionCode: existing.code, changes: updateData } });
@@ -110,11 +110,11 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
   const supabase = createClient();
 
-  const existing = await getOne('permissions', { id }, 'Permiso no encontrado');
+  const existing = await getOne('auth_gangazon.auth_permissions', { id }, 'Permiso no encontrado');
   // Protección: super_admin es un permiso crítico del sistema
   if (existing.code === 'super_admin') throw new AppError('No se puede eliminar el permiso del sistema super_admin', 400);
 
-  const { error } = await supabase.from('permissions').delete().eq('id', id);
+  const { error } = await supabase.from('auth_permissions').delete().eq('id', id);
   if (error) throw new AppError('Error al eliminar permiso', 500);
 
   await createAuditLog({ userId: req.user.id, applicationId: existing.application_id, action: 'permission_deleted', ipAddress: req.ip, details: { deletedPermissionCode: existing.code } });

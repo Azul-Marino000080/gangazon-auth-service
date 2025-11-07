@@ -18,9 +18,9 @@ router.post('/', requireSuperAdmin, validate(createApplicationSchema), catchAsyn
   const { name, code, description, redirectUrl, allowedOrigins } = req.body;
   const supabase = createClient();
 
-  await checkExists('applications', { code }, 'El código de aplicación ya existe');
+  await checkExists('auth_gangazon.auth_applications', { code }, 'El código de aplicación ya existe');
 
-  const { data: newApp, error } = await supabase.from('applications').insert({
+  const { data: newApp, error } = await supabase.from('auth_applications').insert({
     name,
     code: code.toUpperCase(),
     description: description || null,
@@ -48,7 +48,7 @@ router.post('/', requireSuperAdmin, validate(createApplicationSchema), catchAsyn
  */
 router.get('/', requirePermission('applications.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 20, isActive } = req.query;
-  let query = buildPaginatedQuery('applications', { page, limit });
+  let query = buildPaginatedQuery('auth_gangazon.auth_applications', { page, limit });
 
   if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
   query = query.order('created_at', { ascending: false });
@@ -69,7 +69,7 @@ router.get('/', requirePermission('applications.view'), catchAsync(async (req, r
  * GET /api/applications/:id
  */
 router.get('/:id', requirePermission('applications.view'), catchAsync(async (req, res) => {
-  const app = await getOne('applications', { id: req.params.id }, 'Aplicación no encontrada');
+  const app = await getOne('auth_gangazon.auth_applications', { id: req.params.id }, 'Aplicación no encontrada');
   res.json({ success: true, data: { application: mapApplication(app, true) } });
 }));
 
@@ -81,7 +81,7 @@ router.put('/:id', requireSuperAdmin, validate(updateApplicationSchema), catchAs
   const { name, redirectUrl, allowedOrigins, isActive } = req.body;
   const supabase = createClient();
 
-  const existing = await getOne('applications', { id }, 'Aplicación no encontrada');
+  const existing = await getOne('auth_gangazon.auth_applications', { id }, 'Aplicación no encontrada');
 
   const updateData = {};
   if (name !== undefined) updateData.name = name;
@@ -89,7 +89,7 @@ router.put('/:id', requireSuperAdmin, validate(updateApplicationSchema), catchAs
   if (allowedOrigins !== undefined) updateData.allowed_origins = allowedOrigins;
   if (isActive !== undefined) updateData.is_active = isActive;
 
-  const { data: updatedApp, error } = await supabase.from('applications').update(updateData).eq('id', id).select().single();
+  const { data: updatedApp, error } = await supabase.from('auth_applications').update(updateData).eq('id', id).select().single();
   if (error) throw new AppError('Error al actualizar aplicación', 500);
 
   await createAuditLog({ userId: req.user.id, applicationId: id, action: 'application_updated', ipAddress: req.ip, details: { applicationCode: existing.code, changes: updateData } });
@@ -105,11 +105,11 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
   const supabase = createClient();
 
-  const existing = await getOne('applications', { id }, 'Aplicación no encontrada');
+  const existing = await getOne('auth_gangazon.auth_applications', { id }, 'Aplicación no encontrada');
   // Protección: ADMIN_PANEL es una aplicación del sistema y no puede eliminarse
   if (existing.code === 'ADMIN_PANEL') throw new AppError('No se puede eliminar la aplicación del sistema ADMIN_PANEL', 400);
 
-  const { error } = await supabase.from('applications').delete().eq('id', id);
+  const { error } = await supabase.from('auth_applications').delete().eq('id', id);
   if (error) throw new AppError('Error al eliminar aplicación', 500);
 
   await createAuditLog({ userId: req.user.id, action: 'application_deleted', ipAddress: req.ip, details: { deletedApplicationId: id, deletedApplicationCode: existing.code } });
@@ -125,10 +125,10 @@ router.post('/:id/regenerate-key', requireSuperAdmin, catchAsync(async (req, res
   const { id } = req.params;
   const supabase = createClient();
 
-  const existing = await getOne('applications', { id }, 'Aplicación no encontrada');
+  const existing = await getOne('auth_gangazon.auth_applications', { id }, 'Aplicación no encontrada');
   const newApiKey = generateApiKey();
 
-  const { error } = await supabase.from('applications').update({ api_key: newApiKey }).eq('id', id);
+  const { error } = await supabase.from('auth_applications').update({ api_key: newApiKey }).eq('id', id);
   if (error) throw new AppError('Error al regenerar API key', 500);
 
   await createAuditLog({ userId: req.user.id, applicationId: id, action: 'api_key_regenerated', ipAddress: req.ip, details: { applicationCode: existing.code } });

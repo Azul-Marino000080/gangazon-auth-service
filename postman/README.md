@@ -278,5 +278,6 @@ Si encuentras algún error o quieres agregar nuevos endpoints:
 ---
 
 **Versión**: 2.0  
-**Última actualización**: 13 de Octubre, 2025  
-**Mantenedor**: Equipo Gangazon
+**Última actualización**: 7 de Noviembre, 2025  
+**Mantenedor**: Equipo Gangazon  
+**Base de Datos**: auth_gangazon schema con tablas auth_*

@@ -14,8 +14,8 @@ router.use(authenticateToken);
 router.get('/', requirePermission('sessions.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 20, userId, applicationId, isActive } = req.query;
   
-  let query = buildPaginatedQuery('sessions', { page, limit })
-    .select('*, user:users(id, email, first_name, last_name), application:applications(id, name, code)');
+  let query = buildPaginatedQuery('auth_gangazon.auth_sessions', { page, limit })
+    .select('*, user:auth_users(id, email, first_name, last_name), application:auth_applications(id, name, code)');
 
   if (userId) query = query.eq('user_id', userId);
   if (applicationId) query = query.eq('application_id', applicationId);
@@ -41,8 +41,8 @@ router.get('/', requirePermission('sessions.view'), catchAsync(async (req, res) 
  */
 router.get('/my', catchAsync(async (req, res) => {
   const supabase = createClient();
-  const { data: sessions, error } = await supabase.from('sessions')
-    .select('*, application:applications(id, name, code)')
+  const { data: sessions, error } = await supabase.from('auth_sessions')
+    .select('*, application:auth_applications(id, name, code)')
     .eq('user_id', req.user.id).is('ended_at', null).order('created_at', { ascending: false });
 
   if (error) throw new AppError('Error al obtener sesiones', 500);
@@ -57,10 +57,10 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
   const supabase = createClient();
 
-  const session = await getOne('sessions', { id }, 'Sesión no encontrada');
+  const session = await getOne('auth_gangazon.auth_sessions', { id }, 'Sesión no encontrada');
   if (session.ended_at) throw new AppError('La sesión ya está cerrada', 400);
 
-  const { error } = await supabase.from('sessions').update({ ended_at: new Date().toISOString() }).eq('id', id);
+  const { error } = await supabase.from('auth_sessions').update({ ended_at: new Date().toISOString() }).eq('id', id);
   if (error) throw new AppError('Error al cerrar sesión', 500);
 
   await createAuditLog({ userId: req.user.id, action: 'session_closed', ipAddress: req.ip, details: { closedSessionId: id, sessionUserId: session.user_id } });
@@ -76,14 +76,14 @@ router.delete('/user/:userId', requireSuperAdmin, catchAsync(async (req, res) =>
   const { userId } = req.params;
   const supabase = createClient();
 
-  const user = await getOne('users', { id: userId }, 'Usuario no encontrado');
+  const user = await getOne('auth_gangazon.auth_users', { id: userId }, 'Usuario no encontrado');
 
-  const { count: activeCount } = await supabase.from('sessions').select('*', { count: 'exact', head: true })
+  const { count: activeCount } = await supabase.from('auth_sessions').select('*', { count: 'exact', head: true })
     .eq('user_id', userId).is('ended_at', null);
 
   if (activeCount === 0) throw new AppError('El usuario no tiene sesiones activas', 400);
 
-  const { error } = await supabase.from('sessions').update({ ended_at: new Date().toISOString() })
+  const { error } = await supabase.from('auth_sessions').update({ ended_at: new Date().toISOString() })
     .eq('user_id', userId).is('ended_at', null);
 
   if (error) throw new AppError('Error al cerrar sesiones', 500);
