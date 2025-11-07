@@ -1,23 +1,29 @@
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
-const dns = require('dns');
-
-// Forzar resolución DNS a IPv4 únicamente (evita problemas con IPv6 en Render)
-dns.setDefaultResultOrder('ipv4first');
+const { parse } = require('pg-connection-string');
 
 // Validar variables de entorno requeridas
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL no está definida en las variables de entorno');
 }
 
+// Parsear el connection string y forzar configuración manual para evitar problemas IPv6
+const config = parse(process.env.DATABASE_URL);
+
 // Crear pool de conexiones a PostgreSQL con esquema 'auth_gangazon'
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  host: config.host,
+  port: config.port || 5432,
+  database: config.database,
+  user: config.user,
+  password: config.password,
   ssl: { rejectUnauthorized: false }, // Supabase requiere SSL
   max: 20, // Máximo de conexiones en el pool
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000, // Aumentado a 10 segundos
+  connectionTimeoutMillis: 10000,
   options: '-c search_path=auth_gangazon,public', // Priorizar esquema 'auth_gangazon' para todas las queries
+  // Forzar familia de direcciones IPv4
+  family: 4,
 });
 
 // Event handlers
