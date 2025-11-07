@@ -1,5 +1,9 @@
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
+const dns = require('dns');
+
+// Forzar resolución DNS a IPv4 únicamente (evita problemas con IPv6 en Render)
+dns.setDefaultResultOrder('ipv4first');
 
 // Validar variables de entorno requeridas
 if (!process.env.DATABASE_URL) {
@@ -12,7 +16,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }, // Supabase requiere SSL
   max: 20, // Máximo de conexiones en el pool
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // Aumentado a 10 segundos
   options: '-c search_path=auth_gangazon,public', // Priorizar esquema 'auth_gangazon' para todas las queries
 });
 
