@@ -59,8 +59,8 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
   // Verificar que no exista ya un super admin
   const existingSuperAdminsResult = await query(`
     SELECT uap.user_id
-    FROM auth_gangazon.auth_user_app_permissions uap
-    INNER JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+    FROM auth_gangazon.user_app_permissions uap
+    INNER JOIN auth_gangazon.permissions p ON uap.permission_id = p.id
     WHERE p.code = 'super_admin'
     LIMIT 1
   `);
@@ -71,7 +71,7 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
 
   // Verificar que el email no esté registrado
   const existingUserResult = await query(`
-    SELECT id FROM auth_gangazon.auth_users WHERE email = $1
+    SELECT id FROM auth_gangazon.users WHERE email = $1
   `, [email.toLowerCase()]);
 
   if (existingUserResult.rows.length > 0) {
@@ -80,7 +80,7 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
 
   // Obtener la franquicia matriz (GANGAZON_HQ)
   const franchiseResult = await query(`
-    SELECT id FROM auth_gangazon.auth_franchises WHERE code = 'GANGAZON_HQ'
+    SELECT id FROM auth_gangazon.franchises WHERE code = 'GANGAZON_HQ'
   `);
 
   if (franchiseResult.rows.length === 0) {
@@ -88,19 +88,19 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
   }
   const franchise = franchiseResult.rows[0];
 
-  // Obtener la aplicación ADMIN_PANEL
+  // Obtener la aplicación SCANNER_ADMIN o WEB_ADMIN
   const applicationResult = await query(`
-    SELECT id FROM auth_gangazon.auth_applications WHERE code = 'ADMIN_PANEL'
+    SELECT id FROM auth_gangazon.applications WHERE code IN ('SCANNER_ADMIN', 'WEB_ADMIN') LIMIT 1
   `);
 
   if (applicationResult.rows.length === 0) {
-    throw new AppError('Aplicación ADMIN_PANEL no encontrada. Ejecute el schema.sql primero.', 500);
+    throw new AppError('No se encontró ninguna aplicación (SCANNER_ADMIN o WEB_ADMIN). Ejecute el schema.sql primero.', 500);
   }
   const application = applicationResult.rows[0];
 
   // Obtener el permiso super_admin
   const permissionResult = await query(`
-    SELECT id FROM auth_gangazon.auth_permissions 
+    SELECT id FROM auth_gangazon.permissions 
     WHERE code = 'super_admin' AND application_id = $1
   `, [application.id]);
 
@@ -114,7 +114,7 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
 
   // Crear el usuario
   const newUserResult = await query(`
-    INSERT INTO auth_gangazon.auth_users 
+    INSERT INTO auth_gangazon.users 
     (email, password_hash, first_name, last_name, phone, franchise_id, is_active, email_verified)
     VALUES ($1, $2, $3, $4, $5, $6, true, true)
     RETURNING id, email, first_name, last_name
@@ -129,20 +129,20 @@ router.post('/super-admin', validateSetupToken, catchAsync(async (req, res) => {
   // Asignar el permiso super_admin
   try {
     await query(`
-      INSERT INTO auth_gangazon.auth_user_app_permissions 
+      INSERT INTO auth_gangazon.user_app_permissions 
       (user_id, application_id, permission_id, is_active)
       VALUES ($1, $2, $3, true)
     `, [newUser.id, application.id, permission.id]);
   } catch (permAssignError) {
     // Intentar eliminar el usuario creado para mantener consistencia
-    await query('DELETE FROM auth_gangazon.auth_users WHERE id = $1', [newUser.id]);
+    await query('DELETE FROM auth_gangazon.users WHERE id = $1', [newUser.id]);
     logger.error('Error asignando permiso super_admin:', permAssignError);
     throw new AppError('Error al asignar permisos', 500);
   }
 
   // Crear log de auditoría
   await query(`
-    INSERT INTO auth_gangazon.auth_audit_log 
+    INSERT INTO auth_gangazon.audit_log 
     (user_id, application_id, action, ip_address, details)
     VALUES ($1, $2, $3, $4, $5)
   `, [newUser.id, application.id, 'super_admin_created', req.ip, JSON.stringify({
@@ -179,8 +179,8 @@ router.get('/status', catchAsync(async (req, res) => {
   if (setupEnabled) {
     const existingSuperAdminsResult = await query(`
       SELECT uap.user_id
-      FROM auth_gangazon.auth_user_app_permissions uap
-      INNER JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+      FROM auth_gangazon.user_app_permissions uap
+      INNER JOIN auth_gangazon.permissions p ON uap.permission_id = p.id
       WHERE p.code = 'super_admin'
       LIMIT 1
     `);
