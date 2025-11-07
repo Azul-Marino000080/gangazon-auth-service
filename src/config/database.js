@@ -1,42 +1,67 @@
 const { Pool } = require('pg');
 const logger = require('../utils/logger');
 const { parse } = require('pg-connection-string');
+const dns = require('dns').promises;
 
 // Validar variables de entorno requeridas
 if (!process.env.DATABASE_URL) {
   throw new Error('DATABASE_URL no está definida en las variables de entorno');
 }
 
-// Parsear el connection string y forzar configuración manual para evitar problemas IPv6
+// Parsear el connection string
 const config = parse(process.env.DATABASE_URL);
 
-// Crear pool de conexiones a PostgreSQL con esquema 'auth_gangazon'
-const pool = new Pool({
-  host: config.host,
-  port: config.port || 5432,
-  database: config.database,
-  user: config.user,
-  password: config.password,
-  ssl: { rejectUnauthorized: false }, // Supabase requiere SSL
-  max: 20, // Máximo de conexiones en el pool
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-  options: '-c search_path=auth_gangazon,public', // Priorizar esquema 'auth_gangazon' para todas las queries
-  // Forzar familia de direcciones IPv4
-  family: 4,
-});
+// Función para resolver solo IPv4
+async function resolveIPv4(hostname) {
+  try {
+    const addresses = await dns.resolve4(hostname);
+    if (addresses && addresses.length > 0) {
+      logger.info(`✅ Resolviendo ${hostname} a IPv4: ${addresses[0]}`);
+      return addresses[0];
+    }
+  } catch (error) {
+    logger.warn(`⚠️  No se pudo resolver ${hostname} a IPv4, usando hostname original`);
+  }
+  return hostname;
+}
 
-// Event handlers
-pool.on('connect', () => {
-  logger.info('✅ Nueva conexión establecida al pool de PostgreSQL');
-});
+// Crear pool después de resolver el host
+let pool;
 
-pool.on('error', (err) => {
-  logger.error('❌ Error inesperado en el pool de PostgreSQL:', err);
-});
+async function initializePool() {
+  const host = await resolveIPv4(config.host);
+  
+  pool = new Pool({
+    host: host,
+    port: config.port || 5432,
+    database: config.database,
+    user: config.user,
+    password: config.password,
+    ssl: { rejectUnauthorized: false },
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+    options: '-c search_path=auth_gangazon,public',
+  });
+
+  // Event handlers
+  pool.on('connect', () => {
+    logger.info('✅ Nueva conexión establecida al pool de PostgreSQL');
+  });
+
+  pool.on('error', (err) => {
+    logger.error('❌ Error inesperado en el pool de PostgreSQL:', err);
+  });
+
+  return pool;
+}
+
+// Inicializar el pool
+const poolPromise = initializePool();
 
 // Función helper para queries
 const query = async (text, params) => {
+  const pool = await poolPromise;
   const start = Date.now();
   try {
     const res = await pool.query(text, params);
@@ -51,6 +76,7 @@ const query = async (text, params) => {
 
 // Función para obtener un cliente para transacciones
 const getClient = async () => {
+  const pool = await poolPromise;
   const client = await pool.connect();
   const originalQuery = client.query;
   const originalRelease = client.release;
@@ -78,6 +104,7 @@ const getClient = async () => {
 // Verificar conexión y esquema 'auth_gangazon'
 const verifyConnection = async () => {
   try {
+    await poolPromise; // Esperar a que el pool esté inicializado
     const result = await query('SELECT NOW(), current_schema()');
     logger.info('✅ Conexión a PostgreSQL/Supabase establecida correctamente');
     logger.info(`📂 Esquema activo: ${result.rows[0].current_schema}`);
@@ -102,6 +129,7 @@ verifyConnection();
 
 // Cerrar pool cuando la aplicación termina
 const closePool = async () => {
+  const pool = await poolPromise;
   await pool.end();
   logger.info('Pool de PostgreSQL cerrado');
 };
@@ -109,7 +137,7 @@ const closePool = async () => {
 module.exports = {
   query,
   getClient,
-  pool,
+  get pool() { return poolPromise; },
   verifyConnection,
   closePool
 };
