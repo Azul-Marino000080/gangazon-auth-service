@@ -1,10 +1,10 @@
 const express = require('express');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { validate } = require('../middleware/validation');
 const { createPermissionSchema, updatePermissionSchema } = require('../validators/schemas');
 const { authenticateToken, requirePermission, requireSuperAdmin } = require('../middleware/auth');
-const { getOne, buildPaginatedQuery, createAuditLog, checkExists } = require('../utils/queryHelpers');
+const { getOne, getPaginated, createAuditLog, checkExists, paginatedResponse } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -15,22 +15,25 @@ router.use(authenticateToken);
  */
 router.post('/', requirePermission('permissions.create'), validate(createPermissionSchema), catchAsync(async (req, res) => {
   const { applicationId, code, displayName, description, category } = req.body;
-  const supabase = createClient();
 
   await getOne('auth_gangazon.auth_applications', { id: applicationId }, 'Aplicación no encontrada');
   await checkExists('auth_gangazon.auth_permissions', { application_id: applicationId, code }, 'El código de permiso ya existe para esta aplicación');
 
-  const { data: newPermission, error } = await supabase.from('auth_permissions').insert({
-    application_id: applicationId,
-    code,
-    display_name: displayName,
-    description: description || null,
-    category: category || null
-  }).select().single();
+  const result = await query(
+    `INSERT INTO auth_gangazon.auth_permissions (application_id, code, display_name, description, category)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [applicationId, code, displayName, description || null, category || null]
+  );
 
-  if (error) throw new AppError('Error al crear permiso', 500);
+  const newPermission = result.rows[0];
 
-  await createAuditLog({ userId: req.user.id, applicationId, action: 'permission_created', ipAddress: req.ip, details: { permissionCode: newPermission.code, permissionName: newPermission.display_name } });
+  await createAuditLog({ 
+    userId: req.user.id, 
+    applicationId, 
+    action: 'permission_created', 
+    ipAddress: req.ip, 
+    details: { permissionCode: newPermission.code, permissionName: newPermission.display_name } 
+  });
 
   logger.info(`Permiso creado: ${newPermission.code} por ${req.user.email}`);
   res.status(201).json({ success: true, data: { permission: mapPermission(newPermission) } });
@@ -41,26 +44,52 @@ router.post('/', requirePermission('permissions.create'), validate(createPermiss
  */
 router.get('/', requirePermission('permissions.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 50, applicationId, category, isActive } = req.query;
-  const supabase = createClient();
   
-  let query = buildPaginatedQuery('auth_gangazon.auth_permissions', { page, limit })
-    .select('*, application:auth_applications(id, name, code)');
+  // Construir query con joins
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
 
-  if (applicationId) query = query.eq('application_id', applicationId);
-  if (category) query = query.eq('category', category);
-  if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
+  if (applicationId) {
+    whereClauses.push(`p.application_id = $${paramIndex++}`);
+    values.push(applicationId);
+  }
+  if (category) {
+    whereClauses.push(`p.category = $${paramIndex++}`);
+    values.push(category);
+  }
+  if (isActive !== undefined) {
+    whereClauses.push(`p.is_active = $${paramIndex++}`);
+    values.push(isActive === 'true');
+  }
 
-  query = query.order('category', { ascending: true }).order('code', { ascending: true });
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const offset = (page - 1) * limit;
 
-  const { data: permissions, count, error } = await query;
-  if (error) throw new AppError('Error al obtener permisos', 500);
+  const [dataResult, countResult] = await Promise.all([
+    query(
+      `SELECT p.*, a.id as app_id, a.name as app_name, a.code as app_code
+       FROM auth_gangazon.auth_permissions p
+       LEFT JOIN auth_gangazon.auth_applications a ON p.application_id = a.id
+       ${whereClause}
+       ORDER BY p.category ASC, p.code ASC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...values, limit, offset]
+    ),
+    query(
+      `SELECT COUNT(*) as total FROM auth_gangazon.auth_permissions p ${whereClause}`,
+      values
+    )
+  ]);
+
+  const permissions = dataResult.rows.map(p => ({
+    ...p,
+    application: { id: p.app_id, name: p.app_name, code: p.app_code }
+  }));
 
   res.json({
     success: true,
-    data: {
-      permissions: permissions.map(mapPermission),
-      pagination: { total: count, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(count / limit) }
-    }
+    data: paginatedResponse(permissions.map(mapPermission), parseInt(countResult.rows[0].total), page, limit)
   });
 }));
 
@@ -68,11 +97,20 @@ router.get('/', requirePermission('permissions.view'), catchAsync(async (req, re
  * GET /api/permissions/:id
  */
 router.get('/:id', requirePermission('permissions.view'), catchAsync(async (req, res) => {
-  const supabase = createClient();
-  const { data: permission, error } = await supabase.from('auth_permissions')
-    .select('*, application:auth_applications(id, name, code)').eq('id', req.params.id).single();
+  const result = await query(
+    `SELECT p.*, a.id as app_id, a.name as app_name, a.code as app_code
+     FROM auth_gangazon.auth_permissions p
+     LEFT JOIN auth_gangazon.auth_applications a ON p.application_id = a.id
+     WHERE p.id = $1`,
+    [req.params.id]
+  );
 
-  if (error || !permission) throw new AppError('Permiso no encontrado', 404);
+  if (result.rows.length === 0) throw new AppError('Permiso no encontrado', 404);
+
+  const permission = {
+    ...result.rows[0],
+    application: { id: result.rows[0].app_id, name: result.rows[0].app_name, code: result.rows[0].app_code }
+  };
 
   res.json({ success: true, data: { permission: mapPermission(permission, true) } });
 }));
@@ -83,21 +121,47 @@ router.get('/:id', requirePermission('permissions.view'), catchAsync(async (req,
 router.put('/:id', requirePermission('permissions.edit'), validate(updatePermissionSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { displayName, description, isActive } = req.body;
-  const supabase = createClient();
 
   const existing = await getOne('auth_gangazon.auth_permissions', { id }, 'Permiso no encontrado');
   // Protección: super_admin es un permiso crítico del sistema
   if (existing.code === 'super_admin') throw new AppError('No se puede modificar el permiso del sistema super_admin', 400);
 
-  const updateData = {};
-  if (displayName !== undefined) updateData.display_name = displayName;
-  if (description !== undefined) updateData.description = description;
-  if (isActive !== undefined) updateData.is_active = isActive;
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
 
-  const { data: updatedPermission, error } = await supabase.from('auth_permissions').update(updateData).eq('id', id).select().single();
-  if (error) throw new AppError('Error al actualizar permiso', 500);
+  if (displayName !== undefined) {
+    updates.push(`display_name = $${paramIndex++}`);
+    values.push(displayName);
+  }
+  if (description !== undefined) {
+    updates.push(`description = $${paramIndex++}`);
+    values.push(description);
+  }
+  if (isActive !== undefined) {
+    updates.push(`is_active = $${paramIndex++}`);
+    values.push(isActive);
+  }
 
-  await createAuditLog({ userId: req.user.id, applicationId: updatedPermission.application_id, action: 'permission_updated', ipAddress: req.ip, details: { permissionCode: existing.code, changes: updateData } });
+  if (updates.length === 0) {
+    return res.json({ success: true, data: { permission: mapPermission(existing) } });
+  }
+
+  values.push(id);
+  const result = await query(
+    `UPDATE auth_gangazon.auth_permissions SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  const updatedPermission = result.rows[0];
+
+  await createAuditLog({ 
+    userId: req.user.id, 
+    applicationId: updatedPermission.application_id, 
+    action: 'permission_updated', 
+    ipAddress: req.ip, 
+    details: { permissionCode: existing.code, changes: req.body } 
+  });
 
   logger.info(`Permiso actualizado: ${existing.code} por ${req.user.email}`);
   res.json({ success: true, data: { permission: mapPermission(updatedPermission) } });
@@ -108,16 +172,20 @@ router.put('/:id', requirePermission('permissions.edit'), validate(updatePermiss
  */
 router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
-  const supabase = createClient();
 
   const existing = await getOne('auth_gangazon.auth_permissions', { id }, 'Permiso no encontrado');
   // Protección: super_admin es un permiso crítico del sistema
   if (existing.code === 'super_admin') throw new AppError('No se puede eliminar el permiso del sistema super_admin', 400);
 
-  const { error } = await supabase.from('auth_permissions').delete().eq('id', id);
-  if (error) throw new AppError('Error al eliminar permiso', 500);
+  await query('DELETE FROM auth_gangazon.auth_permissions WHERE id = $1', [id]);
 
-  await createAuditLog({ userId: req.user.id, applicationId: existing.application_id, action: 'permission_deleted', ipAddress: req.ip, details: { deletedPermissionCode: existing.code } });
+  await createAuditLog({ 
+    userId: req.user.id, 
+    applicationId: existing.application_id, 
+    action: 'permission_deleted', 
+    ipAddress: req.ip, 
+    details: { deletedPermissionCode: existing.code } 
+  });
 
   logger.warn(`Permiso eliminado: ${existing.code} por ${req.user.email}`);
   res.json({ success: true, message: 'Permiso eliminado correctamente' });

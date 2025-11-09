@@ -153,7 +153,7 @@ router.post('/verify', authenticateToken, catchAsync(async (req, res) => {
  * GET /api/auth/me
  */
 router.get('/me', authenticateToken, catchAsync(async (req, res) => {
-  const user = await getOne('v_users_with_franchises', { id: req.user.id }, 'Usuario no encontrado');
+  const user = await getOne('auth_gangazon.v_auth_users_with_franchises', { id: req.user.id }, 'Usuario no encontrado');
   
   res.json({
     success: true,

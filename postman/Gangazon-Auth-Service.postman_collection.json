@@ -1198,6 +1198,60 @@
 						"description": "Cierra una sesión específica.\n\nRequiere permiso: super_admin\n\nÚtil para forzar logout de usuarios."
 					},
 					"response": []
+				},
+				{
+					"name": "Get My Sessions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/my",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "my"]
+						},
+						"description": "Obtiene las sesiones activas del usuario autenticado actual.\n\nNo requiere permisos especiales, solo autenticación."
+					},
+					"response": []
+				},
+				{
+					"name": "Close All User Sessions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/user/:userId",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "user", ":userId"],
+							"variable": [
+								{
+									"key": "userId",
+									"value": ""
+								}
+							]
+						},
+						"description": "Cierra todas las sesiones activas de un usuario específico.\n\nRequiere permiso: super_admin\n\nÚtil para forzar logout completo de un usuario comprometido."
+					},
+					"response": []
 				}
 			],
 			"description": "Control de sesiones activas"
@@ -1289,6 +1343,66 @@
 							]
 						},
 						"description": "Obtiene detalles de un registro de auditoría.\n\nRequiere permiso: audit.view"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Audit Actions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/audit/actions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "audit", "actions"]
+						},
+						"description": "Obtiene la lista única de acciones registradas en auditoría.\n\nRequiere permiso: audit.view\n\nÚtil para construir filtros de búsqueda."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Audit Stats",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{access_token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/audit/stats?start_date=&end_date=",
+							"host": ["{{base_url}}"],
+							"path": ["api", "audit", "stats"],
+							"query": [
+								{
+									"key": "start_date",
+									"value": "",
+									"description": "Fecha inicio (ISO 8601)"
+								},
+								{
+									"key": "end_date",
+									"value": "",
+									"description": "Fecha fin (ISO 8601)"
+								}
+							]
+						},
+						"description": "Obtiene estadísticas de auditoría agregadas.\n\nRequiere permiso: audit.view\n\nRetorna: total de eventos, acciones más comunes, usuarios más activos."
 					},
 					"response": []
 				}

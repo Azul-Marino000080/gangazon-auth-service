@@ -1,8 +1,8 @@
 const express = require('express');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { authenticateToken, requirePermission, requireSuperAdmin } = require('../middleware/auth');
-const { getOne, buildPaginatedQuery, createAuditLog } = require('../utils/queryHelpers');
+const { getOne, createAuditLog } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -14,24 +14,62 @@ router.use(authenticateToken);
 router.get('/', requirePermission('sessions.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 20, userId, applicationId, isActive } = req.query;
   
-  let query = buildPaginatedQuery('auth_gangazon.auth_sessions', { page, limit })
-    .select('*, user:auth_users(id, email, first_name, last_name), application:auth_applications(id, name, code)');
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
 
-  if (userId) query = query.eq('user_id', userId);
-  if (applicationId) query = query.eq('application_id', applicationId);
-  if (isActive === 'true') query = query.is('ended_at', null);
-  else if (isActive === 'false') query = query.not('ended_at', 'is', null);
+  if (userId) {
+    whereClauses.push(`s.user_id = $${paramIndex++}`);
+    values.push(userId);
+  }
+  if (applicationId) {
+    whereClauses.push(`s.application_id = $${paramIndex++}`);
+    values.push(applicationId);
+  }
+  if (isActive === 'true') {
+    whereClauses.push(`s.ended_at IS NULL`);
+  } else if (isActive === 'false') {
+    whereClauses.push(`s.ended_at IS NOT NULL`);
+  }
 
-  query = query.order('created_at', { ascending: false });
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const offset = (page - 1) * limit;
 
-  const { data: sessions, count, error } = await query;
-  if (error) throw new AppError('Error al obtener sesiones', 500);
+  const [dataResult, countResult] = await Promise.all([
+    query(
+      `SELECT s.*, 
+              u.id as user_id, u.email as user_email, u.first_name as user_first_name, u.last_name as user_last_name,
+              a.id as app_id, a.name as app_name, a.code as app_code
+       FROM auth_gangazon.auth_sessions s
+       LEFT JOIN auth_gangazon.auth_users u ON s.user_id = u.id
+       LEFT JOIN auth_gangazon.auth_applications a ON s.application_id = a.id
+       ${whereClause}
+       ORDER BY s.created_at DESC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...values, limit, offset]
+    ),
+    query(
+      `SELECT COUNT(*) as total FROM auth_gangazon.auth_sessions s ${whereClause}`,
+      values
+    )
+  ]);
+
+  const sessions = dataResult.rows.map(s => ({
+    ...s,
+    user: s.user_id ? { id: s.user_id, email: s.user_email, firstName: s.user_first_name, lastName: s.user_last_name } : null,
+    application: s.app_id ? { id: s.app_id, name: s.app_name, code: s.app_code } : null
+  }));
 
   res.json({
     success: true,
     data: {
       sessions: sessions.map(mapSession),
-      pagination: { total: count, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(count / limit) }
+      pagination: { 
+        total: parseInt(countResult.rows[0].total), 
+        page: parseInt(page), 
+        limit: parseInt(limit), 
+        totalPages: Math.ceil(parseInt(countResult.rows[0].total) / limit) 
+      }
     }
   });
 }));
@@ -40,12 +78,19 @@ router.get('/', requirePermission('sessions.view'), catchAsync(async (req, res) 
  * GET /api/sessions/my
  */
 router.get('/my', catchAsync(async (req, res) => {
-  const supabase = createClient();
-  const { data: sessions, error } = await supabase.from('auth_sessions')
-    .select('*, application:auth_applications(id, name, code)')
-    .eq('user_id', req.user.id).is('ended_at', null).order('created_at', { ascending: false });
+  const result = await query(
+    `SELECT s.*, a.id as app_id, a.name as app_name, a.code as app_code
+     FROM auth_gangazon.auth_sessions s
+     LEFT JOIN auth_gangazon.auth_applications a ON s.application_id = a.id
+     WHERE s.user_id = $1 AND s.ended_at IS NULL
+     ORDER BY s.created_at DESC`,
+    [req.user.id]
+  );
 
-  if (error) throw new AppError('Error al obtener sesiones', 500);
+  const sessions = result.rows.map(s => ({
+    ...s,
+    application: s.app_id ? { id: s.app_id, name: s.app_name, code: s.app_code } : null
+  }));
 
   res.json({ success: true, data: { sessions: sessions.map(s => mapSession(s, false)) } });
 }));
@@ -55,15 +100,18 @@ router.get('/my', catchAsync(async (req, res) => {
  */
 router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
-  const supabase = createClient();
 
   const session = await getOne('auth_gangazon.auth_sessions', { id }, 'Sesión no encontrada');
   if (session.ended_at) throw new AppError('La sesión ya está cerrada', 400);
 
-  const { error } = await supabase.from('auth_sessions').update({ ended_at: new Date().toISOString() }).eq('id', id);
-  if (error) throw new AppError('Error al cerrar sesión', 500);
+  await query('UPDATE auth_gangazon.auth_sessions SET ended_at = NOW() WHERE id = $1', [id]);
 
-  await createAuditLog({ userId: req.user.id, action: 'session_closed', ipAddress: req.ip, details: { closedSessionId: id, sessionUserId: session.user_id } });
+  await createAuditLog({ 
+    userId: req.user.id, 
+    action: 'session_closed', 
+    ipAddress: req.ip, 
+    details: { closedSessionId: id, sessionUserId: session.user_id } 
+  });
 
   logger.info(`Sesión cerrada: ${id} por ${req.user.email}`);
   res.json({ success: true, message: 'Sesión cerrada correctamente' });
@@ -74,21 +122,25 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
  */
 router.delete('/user/:userId', requireSuperAdmin, catchAsync(async (req, res) => {
   const { userId } = req.params;
-  const supabase = createClient();
 
   const user = await getOne('auth_gangazon.auth_users', { id: userId }, 'Usuario no encontrado');
 
-  const { count: activeCount } = await supabase.from('auth_sessions').select('*', { count: 'exact', head: true })
-    .eq('user_id', userId).is('ended_at', null);
+  const activeCountResult = await query(
+    'SELECT COUNT(*) as count FROM auth_gangazon.auth_sessions WHERE user_id = $1 AND ended_at IS NULL',
+    [userId]
+  );
+  const activeCount = parseInt(activeCountResult.rows[0].count);
 
   if (activeCount === 0) throw new AppError('El usuario no tiene sesiones activas', 400);
 
-  const { error } = await supabase.from('auth_sessions').update({ ended_at: new Date().toISOString() })
-    .eq('user_id', userId).is('ended_at', null);
+  await query('UPDATE auth_gangazon.auth_sessions SET ended_at = NOW() WHERE user_id = $1 AND ended_at IS NULL', [userId]);
 
-  if (error) throw new AppError('Error al cerrar sesiones', 500);
-
-  await createAuditLog({ userId: req.user.id, action: 'all_sessions_closed', ipAddress: req.ip, details: { targetUserId: userId, targetUserEmail: user.email, closedCount: activeCount } });
+  await createAuditLog({ 
+    userId: req.user.id, 
+    action: 'all_sessions_closed', 
+    ipAddress: req.ip, 
+    details: { targetUserId: userId, targetUserEmail: user.email, closedCount: activeCount } 
+  });
 
   logger.warn(`Todas las sesiones cerradas para: ${user.email} por ${req.user.email}`);
   res.json({ success: true, message: `${activeCount} sesión(es) cerrada(s) correctamente` });

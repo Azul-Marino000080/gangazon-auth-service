@@ -1,8 +1,7 @@
 const express = require('express');
-const { createClient } = require('../config/database');
+const { query } = require('../config/database');
 const { catchAsync, AppError } = require('../middleware/errorHandler');
 const { authenticateToken, requirePermission } = require('../middleware/auth');
-const { buildPaginatedQuery } = require('../utils/queryHelpers');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -14,28 +13,75 @@ router.use(authenticateToken);
 router.get('/', requirePermission('audit.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 50, userId, applicationId, action, startDate, endDate } = req.query;
   
-  let query = buildPaginatedQuery('auth_gangazon.auth_audit_log', { page, limit })
-    .select('*, user:auth_users(id, email, first_name, last_name), application:auth_applications(id, name, code)');
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
 
-  if (userId) query = query.eq('user_id', userId);
-  if (applicationId) query = query.eq('application_id', applicationId);
+  if (userId) {
+    whereClauses.push(`l.user_id = $${paramIndex++}`);
+    values.push(userId);
+  }
+  if (applicationId) {
+    whereClauses.push(`l.application_id = $${paramIndex++}`);
+    values.push(applicationId);
+  }
   if (action) {
     const actions = action.split(',').map(a => a.trim());
-    query = actions.length === 1 ? query.eq('action', actions[0]) : query.in('action', actions);
+    if (actions.length === 1) {
+      whereClauses.push(`l.action = $${paramIndex++}`);
+      values.push(actions[0]);
+    } else {
+      whereClauses.push(`l.action = ANY($${paramIndex++})`);
+      values.push(actions);
+    }
   }
-  if (startDate) query = query.gte('created_at', startDate);
-  if (endDate) query = query.lte('created_at', endDate);
+  if (startDate) {
+    whereClauses.push(`l.created_at >= $${paramIndex++}`);
+    values.push(startDate);
+  }
+  if (endDate) {
+    whereClauses.push(`l.created_at <= $${paramIndex++}`);
+    values.push(endDate);
+  }
 
-  query = query.order('created_at', { ascending: false });
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const offset = (page - 1) * limit;
 
-  const { data: logs, count, error } = await query;
-  if (error) throw new AppError('Error al obtener logs de auditoría', 500);
+  const [dataResult, countResult] = await Promise.all([
+    query(
+      `SELECT l.*,
+              u.id as user_id_val, u.email as user_email, u.first_name as user_first_name, u.last_name as user_last_name,
+              a.id as app_id, a.name as app_name, a.code as app_code
+       FROM auth_gangazon.auth_audit_log l
+       LEFT JOIN auth_gangazon.auth_users u ON l.user_id = u.id
+       LEFT JOIN auth_gangazon.auth_applications a ON l.application_id = a.id
+       ${whereClause}
+       ORDER BY l.created_at DESC
+       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...values, limit, offset]
+    ),
+    query(
+      `SELECT COUNT(*) as total FROM auth_gangazon.auth_audit_log l ${whereClause}`,
+      values
+    )
+  ]);
+
+  const logs = dataResult.rows.map(l => ({
+    ...l,
+    user: l.user_id_val ? { id: l.user_id_val, email: l.user_email, firstName: l.user_first_name, lastName: l.user_last_name } : null,
+    application: l.app_id ? { id: l.app_id, name: l.app_name, code: l.app_code } : null
+  }));
 
   res.json({
     success: true,
     data: {
       logs: logs.map(mapAuditLog),
-      pagination: { total: count, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(count / limit) }
+      pagination: { 
+        total: parseInt(countResult.rows[0].total), 
+        page: parseInt(page), 
+        limit: parseInt(limit), 
+        totalPages: Math.ceil(parseInt(countResult.rows[0].total) / limit) 
+      }
     }
   });
 }));
@@ -44,12 +90,8 @@ router.get('/', requirePermission('audit.view'), catchAsync(async (req, res) => 
  * GET /api/audit/actions
  */
 router.get('/actions', requirePermission('audit.view'), catchAsync(async (req, res) => {
-  const supabase = createClient();
-  const { data: actions, error } = await supabase.from('auth_audit_log').select('action').order('action', { ascending: true });
-
-  if (error) throw new AppError('Error al obtener acciones', 500);
-
-  res.json({ success: true, data: { actions: [...new Set(actions.map(a => a.action))] } });
+  const result = await query('SELECT DISTINCT action FROM auth_gangazon.auth_audit_log ORDER BY action ASC');
+  res.json({ success: true, data: { actions: result.rows.map(a => a.action) } });
 }));
 
 /**
@@ -57,21 +99,29 @@ router.get('/actions', requirePermission('audit.view'), catchAsync(async (req, r
  */
 router.get('/stats', requirePermission('audit.view'), catchAsync(async (req, res) => {
   const { startDate, endDate } = req.query;
-  const supabase = createClient();
 
-  let query = supabase.from('auth_audit_log').select('action');
-  if (startDate) query = query.gte('created_at', startDate);
-  if (endDate) query = query.lte('created_at', endDate);
+  const whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
 
-  const [{ data: logs, error }, { count: totalUsers }, { count: activeSessions }] = await Promise.all([
-    query,
-    supabase.from('auth_users').select('*', { count: 'exact', head: true }),
-    supabase.from('auth_sessions').select('*', { count: 'exact', head: true }).is('ended_at', null)
+  if (startDate) {
+    whereClauses.push(`created_at >= $${paramIndex++}`);
+    values.push(startDate);
+  }
+  if (endDate) {
+    whereClauses.push(`created_at <= $${paramIndex++}`);
+    values.push(endDate);
+  }
+
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  const [logsResult, totalUsersResult, activeSessionsResult] = await Promise.all([
+    query(`SELECT action FROM auth_gangazon.auth_audit_log ${whereClause}`, values),
+    query('SELECT COUNT(*) as count FROM auth_gangazon.auth_users'),
+    query('SELECT COUNT(*) as count FROM auth_gangazon.auth_sessions WHERE ended_at IS NULL')
   ]);
 
-  if (error) throw new AppError('Error al obtener estadísticas', 500);
-
-  const actionCounts = logs.reduce((acc, log) => {
+  const actionCounts = logsResult.rows.reduce((acc, log) => {
     acc[log.action] = (acc[log.action] || 0) + 1;
     return acc;
   }, {});
@@ -79,10 +129,10 @@ router.get('/stats', requirePermission('audit.view'), catchAsync(async (req, res
   res.json({
     success: true,
     data: {
-      totalLogs: logs.length,
+      totalLogs: logsResult.rows.length,
       actionCounts,
-      totalUsers,
-      activeSessions,
+      totalUsers: parseInt(totalUsersResult.rows[0].count),
+      activeSessions: parseInt(activeSessionsResult.rows[0].count),
       periodStart: startDate || 'desde el inicio',
       periodEnd: endDate || 'hasta ahora'
     }

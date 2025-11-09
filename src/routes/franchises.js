@@ -37,21 +37,46 @@ router.post('/', requirePermission('franchises.create'), validate(createFranchis
  */
 router.get('/', requirePermission('franchises.view'), catchAsync(async (req, res) => {
   const { page = 1, limit = 20, search, isActive } = req.query;
-  let query = buildPaginatedQuery('auth_gangazon.auth_franchises', { page, limit });
 
-  if (search) query = query.or(`name.ilike.%${search}%,code.ilike.%${search}%,city.ilike.%${search}%`);
-  if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
-  
-  query = query.order('created_at', { ascending: false });
+  let whereClauses = [];
+  const values = [];
+  let paramIndex = 1;
 
-  const { data: franchises, count, error } = await query;
-  if (error) throw new AppError('Error al obtener franquicias', 500);
+  if (search) {
+    whereClauses.push(`(name ILIKE $${paramIndex} OR code ILIKE $${paramIndex} OR city ILIKE $${paramIndex})`);
+    values.push(`%${search}%`);
+    paramIndex++;
+  }
+
+  if (isActive !== undefined) {
+    whereClauses.push(`is_active = $${paramIndex++}`);
+    values.push(isActive === 'true');
+  }
+
+  const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+  const offset = (page - 1) * limit;
+
+  const [dataResult, countResult] = await Promise.all([
+    query(
+      `SELECT * FROM auth_gangazon.auth_franchises ${whereClause} ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...values, limit, offset]
+    ),
+    query(
+      `SELECT COUNT(*) as total FROM auth_gangazon.auth_franchises ${whereClause}`,
+      values
+    )
+  ]);
 
   res.json({
     success: true,
     data: {
-      franchises: franchises.map(mapFranchise),
-      pagination: { total: count, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(count / limit) }
+      franchises: dataResult.rows.map(mapFranchise),
+      pagination: { 
+        total: parseInt(countResult.rows[0].total), 
+        page: parseInt(page), 
+        limit: parseInt(limit), 
+        totalPages: Math.ceil(parseInt(countResult.rows[0].total) / limit) 
+      }
     }
   });
 }));
@@ -61,14 +86,21 @@ router.get('/', requirePermission('franchises.view'), catchAsync(async (req, res
  */
 router.get('/:id', requirePermission('franchises.view'), catchAsync(async (req, res) => {
   const { id } = req.params;
-  const supabase = createClient();
 
-  const [franchise, { count: userCount }] = await Promise.all([
-    getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada'),
-    supabase.from('auth_users').select('*', { count: 'exact', head: true }).eq('franchise_id', id)
+  const [franchiseResult, userCountResult] = await Promise.all([
+    query('SELECT * FROM auth_gangazon.auth_franchises WHERE id = $1', [id]),
+    query('SELECT COUNT(*) as count FROM auth_gangazon.auth_users WHERE franchise_id = $1', [id])
   ]);
 
-  res.json({ success: true, data: { franchise: { ...mapFranchise(franchise, true), userCount: userCount || 0 } } });
+  if (franchiseResult.rows.length === 0) throw new AppError('Franquicia no encontrada', 404);
+
+  const franchise = franchiseResult.rows[0];
+  const userCount = parseInt(userCountResult.rows[0].count);
+
+  res.json({ 
+    success: true, 
+    data: { franchise: { ...mapFranchise(franchise, true), userCount } } 
+  });
 }));
 
 /**
@@ -77,28 +109,74 @@ router.get('/:id', requirePermission('franchises.view'), catchAsync(async (req, 
 router.put('/:id', requirePermission('franchises.edit'), validate(updateFranchiseSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, address, city, state, postalCode, country, contactPerson, isActive } = req.body;
-  const supabase = createClient();
 
   const existing = await getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada');
   // Protección: GANGAZON_HQ es la franquicia matriz del sistema
   if (existing.code === 'GANGAZON_HQ') throw new AppError('No se puede modificar la franquicia matriz del sistema (GANGAZON_HQ)', 400);
 
-  const updateData = {};
-  if (name !== undefined) updateData.name = name;
-  if (email !== undefined) updateData.email = email;
-  if (phone !== undefined) updateData.phone = phone;
-  if (address !== undefined) updateData.address = address;
-  if (city !== undefined) updateData.city = city;
-  if (state !== undefined) updateData.state = state;
-  if (postalCode !== undefined) updateData.postal_code = postalCode;
-  if (country !== undefined) updateData.country = country;
-  if (contactPerson !== undefined) updateData.contact_person = contactPerson;
-  if (isActive !== undefined) updateData.is_active = isActive;
+  const updates = [];
+  const values = [];
+  let paramIndex = 1;
 
-  const { data: updatedFranchise, error } = await supabase.from('auth_franchises').update(updateData).eq('id', id).select().single();
-  if (error) throw new AppError('Error al actualizar franquicia', 500);
+  if (name !== undefined) {
+    updates.push(`name = $${paramIndex++}`);
+    values.push(name);
+  }
+  if (email !== undefined) {
+    updates.push(`email = $${paramIndex++}`);
+    values.push(email);
+  }
+  if (phone !== undefined) {
+    updates.push(`phone = $${paramIndex++}`);
+    values.push(phone);
+  }
+  if (address !== undefined) {
+    updates.push(`address = $${paramIndex++}`);
+    values.push(address);
+  }
+  if (city !== undefined) {
+    updates.push(`city = $${paramIndex++}`);
+    values.push(city);
+  }
+  if (state !== undefined) {
+    updates.push(`state = $${paramIndex++}`);
+    values.push(state);
+  }
+  if (postalCode !== undefined) {
+    updates.push(`postal_code = $${paramIndex++}`);
+    values.push(postalCode);
+  }
+  if (country !== undefined) {
+    updates.push(`country = $${paramIndex++}`);
+    values.push(country);
+  }
+  if (contactPerson !== undefined) {
+    updates.push(`contact_person = $${paramIndex++}`);
+    values.push(contactPerson);
+  }
+  if (isActive !== undefined) {
+    updates.push(`is_active = $${paramIndex++}`);
+    values.push(isActive);
+  }
 
-  await createAuditLog({ userId: req.user.id, action: 'franchise_updated', ipAddress: req.ip, details: { franchiseCode: existing.code, changes: updateData } });
+  if (updates.length === 0) {
+    return res.json({ success: true, data: { franchise: mapFranchise(existing) } });
+  }
+
+  values.push(id);
+  const result = await query(
+    `UPDATE auth_gangazon.auth_franchises SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex} RETURNING *`,
+    values
+  );
+
+  const updatedFranchise = result.rows[0];
+
+  await createAuditLog({ 
+    userId: req.user.id, 
+    action: 'franchise_updated', 
+    ipAddress: req.ip, 
+    details: { franchiseCode: existing.code, changes: req.body } 
+  });
 
   logger.info(`Franquicia actualizada: ${existing.code} por ${req.user.email}`);
   res.json({ success: true, data: { franchise: mapFranchise(updatedFranchise) } });
@@ -109,19 +187,24 @@ router.put('/:id', requirePermission('franchises.edit'), validate(updateFranchis
  */
 router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
   const { id } = req.params;
-  const supabase = createClient();
 
   const existing = await getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada');
   // Protección: GANGAZON_HQ es la franquicia matriz del sistema
   if (existing.code === 'GANGAZON_HQ') throw new AppError('No se puede eliminar la franquicia matriz del sistema (GANGAZON_HQ)', 400);
 
-  const { count: userCount } = await supabase.from('auth_users').select('*', { count: 'exact', head: true }).eq('franchise_id', id);
+  const userCountResult = await query('SELECT COUNT(*) as count FROM auth_gangazon.auth_users WHERE franchise_id = $1', [id]);
+  const userCount = parseInt(userCountResult.rows[0].count);
+
   if (userCount > 0) throw new AppError(`No se puede eliminar la franquicia porque tiene ${userCount} usuario(s) asociado(s)`, 400);
 
-  const { error } = await supabase.from('auth_franchises').delete().eq('id', id);
-  if (error) throw new AppError('Error al eliminar franquicia', 500);
+  await query('DELETE FROM auth_gangazon.auth_franchises WHERE id = $1', [id]);
 
-  await createAuditLog({ userId: req.user.id, action: 'franchise_deleted', ipAddress: req.ip, details: { deletedFranchiseCode: existing.code, deletedFranchiseName: existing.name } });
+  await createAuditLog({ 
+    userId: req.user.id, 
+    action: 'franchise_deleted', 
+    ipAddress: req.ip, 
+    details: { deletedFranchiseCode: existing.code, deletedFranchiseName: existing.name } 
+  });
 
   logger.warn(`Franquicia eliminada: ${existing.code} por ${req.user.email}`);
   res.json({ success: true, message: 'Franquicia eliminada correctamente' });

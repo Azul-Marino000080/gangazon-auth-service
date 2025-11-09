@@ -91,7 +91,7 @@ router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => 
     ]);
     result = { data: dataResult.rows, count: parseInt(countResult.rows[0].total) };
   } else {
-    result = await getPaginated('v_users_with_franchises', { page, limit, filters });
+    result = await getPaginated('auth_gangazon.v_auth_users_with_franchises', { page, limit, filters });
   }
 
   res.json({ success: true, data: paginatedResponse(result.data.map(mapUser), result.count, page, limit) });
@@ -101,7 +101,7 @@ router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => 
  * GET /api/users/:id
  */
 router.get('/:id', requirePermission('users.view'), catchAsync(async (req, res) => {
-  const user = await getOne('v_users_with_franchises', { id: req.params.id }, 'Usuario no encontrado');
+  const user = await getOne('auth_gangazon.v_auth_users_with_franchises', { id: req.params.id }, 'Usuario no encontrado');
   res.json({ success: true, data: { user: mapUser(user) } });
 }));
 
@@ -228,7 +228,7 @@ router.post('/:id/assign', requirePermission('permissions.assign'), validate(ass
   }
 
   // Verificar si ya tiene el permiso
-  await checkExists('user_app_permissions', { user_id: id, application_id: applicationId, permission_id: permissionId }, 'El usuario ya tiene este permiso asignado');
+  await checkExists('auth_gangazon.auth_user_app_permissions', { user_id: id, application_id: applicationId, permission_id: permissionId }, 'El usuario ya tiene este permiso asignado');
 
   await query(
     'INSERT INTO auth_gangazon.auth_user_app_permissions (user_id, application_id, permission_id, expires_at) VALUES ($1, $2, $3, $4)',

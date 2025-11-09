@@ -68,7 +68,7 @@ async function storeRefreshToken(userId, token, expiresInDays = 7) {
   expiresAt.setDate(expiresAt.getDate() + expiresInDays);
 
   await query(
-    'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+    'INSERT INTO auth_gangazon.auth_refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
     [userId, token, expiresAt.toISOString()]
   );
 }
@@ -78,7 +78,7 @@ async function storeRefreshToken(userId, token, expiresInDays = 7) {
  */
 async function validateRefreshToken(token) {
   const result = await query(
-    'SELECT * FROM refresh_tokens WHERE token = $1 AND expires_at > NOW()',
+    'SELECT * FROM auth_gangazon.auth_refresh_tokens WHERE token = $1 AND expires_at > NOW()',
     [token]
   );
 
@@ -89,14 +89,14 @@ async function validateRefreshToken(token) {
  * Elimina un refresh token
  */
 async function revokeRefreshToken(token) {
-  await query('DELETE FROM refresh_tokens WHERE token = $1', [token]);
+  await query('DELETE FROM auth_gangazon.auth_refresh_tokens WHERE token = $1', [token]);
 }
 
 /**
  * Elimina todos los refresh tokens expirados
  */
 async function cleanExpiredTokens() {
-  await query('DELETE FROM refresh_tokens WHERE expires_at < NOW()');
+  await query('DELETE FROM auth_gangazon.auth_refresh_tokens WHERE expires_at < NOW()');
 }
 
 module.exports = {
