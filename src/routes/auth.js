@@ -32,7 +32,7 @@ router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
 
   // Obtener permisos
   const permissionsResult = await query(
-    'SELECT permission_code FROM v_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
+    'SELECT permission_code FROM auth_gangazon.v_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
     [user.id, application.id]
   );
 
