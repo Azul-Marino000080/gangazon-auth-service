@@ -1,5 +1,6 @@
 const { query } = require('../config/database');
 const logger = require('./logger');
+const { AppError } = require('../middleware/errorHandler');
 
 /**
  * Helper para obtener un registro único
@@ -19,7 +20,7 @@ async function getOne(table, filters, errorMessage = 'Registro no encontrado') {
   const result = await query(sql, values);
   
   if (result.rows.length === 0) {
-    throw new Error(errorMessage);
+    throw new AppError(errorMessage, 401);
   }
   
   return result.rows[0];
@@ -133,7 +134,7 @@ async function checkExists(table, filters, customError = null) {
   const result = await query(sql, values);
   
   if (result.rows.length > 0 && customError) {
-    throw new Error(customError);
+    throw new AppError(customError, 400);
   }
   
   return result.rows.length > 0;
