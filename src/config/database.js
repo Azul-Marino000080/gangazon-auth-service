@@ -41,11 +41,12 @@ async function initializePool() {
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
-    options: '-c search_path=auth_gangazon,public',
   });
 
   // Event handlers
-  pool.on('connect', () => {
+  pool.on('connect', async (client) => {
+    // Configurar search_path en cada conexión (requerido por Supabase Pooler)
+    await client.query("SET search_path TO auth_gangazon, public");
     logger.info('✅ Nueva conexión establecida al pool de PostgreSQL');
   });
 
