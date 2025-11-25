@@ -30,11 +30,22 @@ app.use(helmet());
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Permitir peticiones sin origin (ej: Postman, apps móviles)
+    if (!origin) {
+      return callback(null, true);
     }
+    
+    // Permitir localhost en cualquier puerto (desarrollo)
+    if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+      return callback(null, true);
+    }
+    
+    // Permitir orígenes configurados
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
