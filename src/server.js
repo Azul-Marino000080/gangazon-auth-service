@@ -40,6 +40,11 @@ app.use(cors({
       return callback(null, true);
     }
     
+    // Permitir todos los subdominios de vercel.app
+    if (origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    
     // Permitir orígenes configurados
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
