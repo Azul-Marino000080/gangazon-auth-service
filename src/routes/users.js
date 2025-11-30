@@ -34,11 +34,41 @@ router.post('/', requirePermission('users.create'), validate(createUserSchema), 
 
   const newUser = result.rows[0];
 
+  // Si es un usuario franquiciado, asignar permisos de FRANCHISEE_PANEL automáticamente
+  if (franchiseId) {
+    try {
+      // Obtener la aplicación FRANCHISEE_PANEL
+      const appResult = await query(
+        'SELECT id FROM auth_gangazon.auth_applications WHERE code = $1',
+        ['FRANCHISEE_PANEL']
+      );
+
+      if (appResult.rows.length > 0) {
+        const appId = appResult.rows[0].id;
+
+        // Asignar todos los permisos de FRANCHISEE_PANEL
+        await query(
+          `INSERT INTO auth_gangazon.auth_user_app_permissions (user_id, application_id, permission_id, is_active)
+           SELECT $1, $2, p.id, true
+           FROM auth_gangazon.auth_permissions p
+           WHERE p.application_id = $2
+           ON CONFLICT (user_id, application_id, permission_id) DO NOTHING`,
+          [newUser.id, appId]
+        );
+
+        logger.info(`Permisos de FRANCHISEE_PANEL asignados automáticamente a ${newUser.email}`);
+      }
+    } catch (error) {
+      logger.warn(`No se pudieron asignar permisos de FRANCHISEE_PANEL a ${newUser.email}: ${error.message}`);
+      // No fallar la creación del usuario si falla la asignación de permisos
+    }
+  }
+
   await createAuditLog({
     userId: req.user.id,
     action: 'user_created',
     ipAddress: req.ip,
-    details: { newUserId: newUser.id, email: newUser.email }
+    details: { newUserId: newUser.id, email: newUser.email, franchiseId }
   });
 
   logger.info(`Usuario creado: ${newUser.email} por ${req.user.email}`);
