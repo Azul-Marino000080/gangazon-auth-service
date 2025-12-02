@@ -13,7 +13,7 @@ router.use(authenticateToken);
 /**
  * POST /api/franchises
  */
-router.post('/', requirePermission('franchises.create'), validate(createFranchiseSchema), catchAsync(async (req, res) => {
+router.post('/', validate(createFranchiseSchema), catchAsync(async (req, res) => {
   const { name, code, email, phone, address, city, state, postalCode, country, contactPerson } = req.body;
 
   await checkExists('auth_gangazon.auth_franchises', { code }, 'El código de franquicia ya existe');
@@ -35,7 +35,7 @@ router.post('/', requirePermission('franchises.create'), validate(createFranchis
 /**
  * GET /api/franchises
  */
-router.get('/', requirePermission('franchises.view'), catchAsync(async (req, res) => {
+router.get('/', catchAsync(async (req, res) => {
   const { page = 1, limit = 20, search, isActive } = req.query;
 
   let whereClauses = [];
@@ -84,7 +84,7 @@ router.get('/', requirePermission('franchises.view'), catchAsync(async (req, res
 /**
  * GET /api/franchises/:id
  */
-router.get('/:id', requirePermission('franchises.view'), catchAsync(async (req, res) => {
+router.get('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
 
   const [franchiseResult, userCountResult] = await Promise.all([
@@ -106,7 +106,7 @@ router.get('/:id', requirePermission('franchises.view'), catchAsync(async (req, 
 /**
  * PUT /api/franchises/:id
  */
-router.put('/:id', requirePermission('franchises.edit'), validate(updateFranchiseSchema), catchAsync(async (req, res) => {
+router.put('/:id', validate(updateFranchiseSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, address, city, state, postalCode, country, contactPerson, isActive } = req.body;
 
@@ -185,7 +185,7 @@ router.put('/:id', requirePermission('franchises.edit'), validate(updateFranchis
 /**
  * DELETE /api/franchises/:id
  */
-router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
+router.delete('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
 
   const existing = await getOne('auth_gangazon.auth_franchises', { id }, 'Franquicia no encontrada');

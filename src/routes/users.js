@@ -79,7 +79,7 @@ router.post('/', requirePermission('users.create'), validate(createUserSchema), 
 /**
  * GET /api/users
  */
-router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => {
+router.get('/', catchAsync(async (req, res) => {
   const { page = 1, limit = 20, franchiseId, search, isActive } = req.query;
 
   const filters = {};
@@ -131,7 +131,7 @@ router.get('/', requirePermission('users.view'), catchAsync(async (req, res) => 
 /**
  * GET /api/users/:id
  */
-router.get('/:id', requirePermission('users.view'), catchAsync(async (req, res) => {
+router.get('/:id', catchAsync(async (req, res) => {
   const user = await getOne('auth_gangazon.v_auth_users_with_franchises', { id: req.params.id }, 'Usuario no encontrado');
   res.json({ success: true, data: { user: mapUser(user) } });
 }));
@@ -139,7 +139,7 @@ router.get('/:id', requirePermission('users.view'), catchAsync(async (req, res) 
 /**
  * PUT /api/users/:id
  */
-router.put('/:id', requirePermission('users.edit'), validate(updateUserSchema), catchAsync(async (req, res) => {
+router.put('/:id', validate(updateUserSchema), catchAsync(async (req, res) => {
   const { id } = req.params;
   const { firstName, lastName, phone, isActive } = req.body;
 
@@ -186,7 +186,7 @@ router.put('/:id', requirePermission('users.edit'), validate(updateUserSchema), 
 /**
  * DELETE /api/users/:id
  */
-router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
+router.delete('/:id', catchAsync(async (req, res) => {
   const { id } = req.params;
   if (id === req.user.id) throw new AppError('No puedes eliminar tu propio usuario', 400);
 
