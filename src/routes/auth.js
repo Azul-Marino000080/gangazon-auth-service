@@ -30,13 +30,24 @@ router.post('/login', validate(loginSchema), catchAsync(async (req, res) => {
     throw new AppError('Credenciales inválidas', 401);
   }
 
-  // Obtener permisos
-  const permissionsResult = await query(
-    'SELECT permission_code FROM auth_gangazon.v_user_permissions_by_app WHERE user_id = $1 AND application_id = $2',
+  // Verificar que el usuario tenga acceso a esta aplicación
+  const accessResult = await query(
+    `SELECT uap.id 
+     FROM auth_gangazon.auth_user_app_permissions uap
+     JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+     WHERE uap.user_id = $1 
+       AND uap.application_id = $2 
+       AND p.code = 'app.access'
+       AND uap.is_active = true`,
     [user.id, application.id]
   );
 
-  const permissions = permissionsResult.rows.map(p => p.permission_code);
+  if (accessResult.rows.length === 0) {
+    throw new AppError('No tienes permiso para acceder a esta aplicación', 403);
+  }
+
+  // Permisos simplificados: solo 'app.access'
+  const permissions = ['app.access'];
 
   // Generar tokens
   const accessToken = generateAccessToken(user, permissions, application.id);

@@ -34,32 +34,33 @@ router.post('/', requirePermission('users.create'), validate(createUserSchema), 
 
   const newUser = result.rows[0];
 
-  // Si es un usuario franquiciado, asignar permisos de FRANCHISEE_PANEL automáticamente
+  // Si es un usuario franquiciado, asignar acceso a FRANCHISEE_PANEL automáticamente
   if (franchiseId) {
     try {
-      // Obtener la aplicación FRANCHISEE_PANEL
-      const appResult = await query(
-        'SELECT id FROM auth_gangazon.auth_applications WHERE code = $1',
+      // Obtener el permiso de acceso a FRANCHISEE_PANEL
+      const permResult = await query(
+        `SELECT p.id, p.application_id
+         FROM auth_gangazon.auth_permissions p
+         JOIN auth_gangazon.auth_applications a ON p.application_id = a.id
+         WHERE a.code = $1 AND p.code = 'app.access'`,
         ['FRANCHISEE_PANEL']
       );
 
-      if (appResult.rows.length > 0) {
-        const appId = appResult.rows[0].id;
+      if (permResult.rows.length > 0) {
+        const perm = permResult.rows[0];
 
-        // Asignar todos los permisos de FRANCHISEE_PANEL
+        // Asignar acceso a FRANCHISEE_PANEL
         await query(
           `INSERT INTO auth_gangazon.auth_user_app_permissions (user_id, application_id, permission_id, is_active)
-           SELECT $1, $2, p.id, true
-           FROM auth_gangazon.auth_permissions p
-           WHERE p.application_id = $2
+           VALUES ($1, $2, $3, true)
            ON CONFLICT (user_id, application_id, permission_id) DO NOTHING`,
-          [newUser.id, appId]
+          [newUser.id, perm.application_id, perm.id]
         );
 
-        logger.info(`Permisos de FRANCHISEE_PANEL asignados automáticamente a ${newUser.email}`);
+        logger.info(`Acceso a FRANCHISEE_PANEL asignado automáticamente a ${newUser.email}`);
       }
     } catch (error) {
-      logger.warn(`No se pudieron asignar permisos de FRANCHISEE_PANEL a ${newUser.email}: ${error.message}`);
+      logger.warn(`No se pudo asignar acceso a FRANCHISEE_PANEL a ${newUser.email}: ${error.message}`);
       // No fallar la creación del usuario si falla la asignación de permisos
     }
   }
@@ -200,40 +201,74 @@ router.delete('/:id', requireSuperAdmin, catchAsync(async (req, res) => {
 }));
 
 /**
- * GET /api/users/:id/permissions
+ * GET /api/users/:id/applications
+ * Obtiene las aplicaciones a las que el usuario tiene acceso
  */
-router.get('/:id/permissions', requirePermission('permissions.view'), catchAsync(async (req, res) => {
+router.get('/:id/applications', catchAsync(async (req, res) => {
   const { id } = req.params;
-  const { applicationId } = req.query;
 
-  const result = applicationId
-    ? await query(
-        `SELECT permission_id, permission_code, permission_display_name, permission_category, 
-                application_id, application_name, application_code, assigned_at, expires_at, is_active
-         FROM auth_gangazon.v_auth_user_permissions_by_app 
-         WHERE user_id = $1 AND application_id = $2`,
-        [id, applicationId]
-      )
-    : await query(
-        `SELECT permission_id, permission_code, permission_display_name, permission_category,
-                application_id, application_name, application_code, assigned_at, expires_at, is_active
-         FROM auth_gangazon.v_auth_user_permissions_by_app 
-         WHERE user_id = $1`,
-        [id]
-      );
+  const result = await query(
+    `SELECT 
+      a.id as application_id,
+      a.code as application_code,
+      a.name as application_name,
+      a.description,
+      a.redirect_url,
+      uap.assigned_at,
+      uap.expires_at,
+      uap.is_active
+     FROM auth_gangazon.auth_user_app_permissions uap
+     JOIN auth_gangazon.auth_applications a ON uap.application_id = a.id
+     JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+     WHERE uap.user_id = $1 AND p.code = 'app.access' AND uap.is_active = true`,
+    [id]
+  );
+
+  res.json({
+    success: true,
+    data: {
+      applications: result.rows.map(app => ({
+        applicationId: app.application_id,
+        applicationCode: app.application_code,
+        applicationName: app.application_name,
+        description: app.description,
+        redirectUrl: app.redirect_url,
+        assignedAt: app.assigned_at,
+        expiresAt: app.expires_at
+      }))
+    }
+  });
+}));
+
+/**
+ * GET /api/users/:id/permissions (DEPRECATED - usar /applications)
+ */
+router.get('/:id/permissions', catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const result = await query(
+    `SELECT 
+      a.id as application_id,
+      a.code as application_code,
+      a.name as application_name,
+      p.code as permission_code,
+      uap.assigned_at
+     FROM auth_gangazon.auth_user_app_permissions uap
+     JOIN auth_gangazon.auth_applications a ON uap.application_id = a.id
+     JOIN auth_gangazon.auth_permissions p ON uap.permission_id = p.id
+     WHERE uap.user_id = $1 AND uap.is_active = true`,
+    [id]
+  );
 
   res.json({
     success: true,
     data: {
       permissions: result.rows.map(p => ({
-        permissionId: p.permission_id,
         permissionCode: p.permission_code,
-        permissionName: p.permission_display_name,
-        category: p.permission_category,
         applicationId: p.application_id,
+        applicationCode: p.application_code,
         applicationName: p.application_name,
-        assignedAt: p.assigned_at,
-        expiresAt: p.expires_at
+        assignedAt: p.assigned_at
       }))
     }
   });
@@ -303,6 +338,105 @@ router.delete('/:id/revoke', requirePermission('permissions.assign'), validate(r
 
   logger.info(`Permiso ${permission?.code} revocado de ${user.email} por ${req.user.email}`);
   res.json({ success: true, message: 'Permiso revocado correctamente' });
+}));
+
+/**
+ * POST /api/users/:id/grant-access
+ * Otorga acceso a una aplicación (sistema simplificado)
+ */
+router.post('/:id/grant-access', catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { applicationCode } = req.body;
+
+  if (!applicationCode) {
+    throw new AppError('El código de aplicación es requerido', 400);
+  }
+
+  const user = await getOne('auth_gangazon.auth_users', { id }, 'Usuario no encontrado');
+  
+  // Obtener el permiso de acceso a la aplicación
+  const permResult = await query(
+    `SELECT p.id as permission_id, p.application_id, a.name as app_name
+     FROM auth_gangazon.auth_permissions p
+     JOIN auth_gangazon.auth_applications a ON p.application_id = a.id
+     WHERE a.code = $1 AND p.code = 'app.access'`,
+    [applicationCode]
+  );
+
+  if (permResult.rows.length === 0) {
+    throw new AppError('Aplicación no encontrada', 404);
+  }
+
+  const { permission_id, application_id, app_name } = permResult.rows[0];
+
+  // Verificar si ya tiene acceso
+  const existingAccess = await query(
+    'SELECT id FROM auth_gangazon.auth_user_app_permissions WHERE user_id = $1 AND application_id = $2',
+    [id, application_id]
+  );
+
+  if (existingAccess.rows.length > 0) {
+    return res.json({ success: true, message: 'El usuario ya tiene acceso a esta aplicación' });
+  }
+
+  // Otorgar acceso
+  await query(
+    'INSERT INTO auth_gangazon.auth_user_app_permissions (user_id, application_id, permission_id, is_active) VALUES ($1, $2, $3, true)',
+    [id, application_id, permission_id]
+  );
+
+  await createAuditLog({
+    userId: req.user.id,
+    applicationId: application_id,
+    action: 'access_granted',
+    ipAddress: req.ip,
+    details: { targetUserId: id, targetUserEmail: user.email, applicationCode, applicationName: app_name }
+  });
+
+  logger.info(`Acceso a ${applicationCode} otorgado a ${user.email} por ${req.user.email}`);
+  res.status(201).json({ success: true, message: `Acceso a ${app_name} otorgado correctamente` });
+}));
+
+/**
+ * DELETE /api/users/:id/revoke-access
+ * Revoca acceso a una aplicación (sistema simplificado)
+ */
+router.delete('/:id/revoke-access', catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const { applicationCode } = req.body;
+
+  if (!applicationCode) {
+    throw new AppError('El código de aplicación es requerido', 400);
+  }
+
+  const user = await getOne('auth_gangazon.auth_users', { id }, 'Usuario no encontrado');
+  
+  const appResult = await query(
+    'SELECT id, name FROM auth_gangazon.auth_applications WHERE code = $1',
+    [applicationCode]
+  );
+
+  if (appResult.rows.length === 0) {
+    throw new AppError('Aplicación no encontrada', 404);
+  }
+
+  const { id: application_id, name: app_name } = appResult.rows[0];
+
+  await query(
+    'DELETE FROM auth_gangazon.auth_user_app_permissions WHERE user_id = $1 AND application_id = $2',
+    [id, application_id]
+  );
+
+  await createAuditLog({
+    userId: req.user.id,
+    applicationId: application_id,
+    action: 'access_revoked',
+    ipAddress: req.ip,
+    details: { targetUserId: id, targetUserEmail: user.email, applicationCode, applicationName: app_name }
+  });
+
+  logger.info(`Acceso a ${applicationCode} revocado de ${user.email} por ${req.user.email}`);
+  res.json({ success: true, message: `Acceso a ${app_name} revocado correctamente` });
 }));
 
 module.exports = router;
